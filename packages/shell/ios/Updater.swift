@@ -17,8 +17,9 @@ public final class AppUpdater: NSObject {
   static var feedOverrideAllowed: Bool { ACIsolatedDataDirectory() != nil || !isTeamSigned }
 
   static func isAllowedFeed(_ feed: String) -> Bool {
-    guard let url = URL(string: feed.trimmingCharacters(in: .whitespaces)), let scheme = url.scheme?.lowercased() else { return false }
-    return scheme == "https" || (scheme == "http" && ["127.0.0.1", "localhost", "::1"].contains(url.host?.lowercased() ?? ""))
+    guard let url = URL(string: feed.trimmingCharacters(in: .whitespacesAndNewlines)), let scheme = url.scheme?.lowercased(),
+      let host = url.host?.lowercased(), !host.isEmpty else { return false }
+    return scheme == "https" || (scheme == "http" && ["127.0.0.1", "localhost", "::1"].contains(host))
   }
 
   static let isTeamSigned: Bool = {

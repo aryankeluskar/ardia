@@ -270,7 +270,9 @@ fi
 `appcast-merge.sh` puts this release's item onto the feed as it's published right now, so nightlies that shipped while
 this release was being tested stay listed (it rewrites `dist/<version>/appcast.xml`, keeping `appcast.built.xml`).
 It refuses a published feed whose Sparkle signature doesn't verify, then signs the merged feed with the Sparkle key
-(`sign_update`, one keychain read) and checks it against `SUPublicEDKey` (`verify-feed.sh`).
+(`sign_update`, one keychain read) and checks it against `SUPublicEDKey` (`verify-feed.sh`). The first release that
+signs the feed builds on the last unsigned one: run its `release.sh` and its publish step with `ALLOW_UNSIGNED_FEED=1`,
+that once and with the owner's OK; never again after a signed feed is live.
 Both must show the new version. Copies from 0.2.13 and earlier poll GitHub's URL directly; 0.2.14 to 0.2.32 poll
 netnyahoo.com/appcast.xml and later ones ardia.dev/appcast.xml, both served by the site, which counts the check
 (version, day, first check or not) and redirects to the same GitHub file. feed.sh reads the URL from the built
