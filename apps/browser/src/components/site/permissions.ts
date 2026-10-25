@@ -1,4 +1,5 @@
 import { onPermission, onPermissionDismissed, resolvePermission, type PermissionKind, type PermissionRequest, type PermissionResult } from "@ardia/ardiacore";
+import { displayHost } from "@ardia/core";
 import { ensureNotificationPermission } from "../../lib/webNotifications";
 import { useBrowser } from "../../store/browser";
 import { patchPage, pageOf, tabForBrowser, usePages } from "../layout/pageState";
@@ -49,10 +50,10 @@ function drop(id: string) {
   for (const [tabId, queue] of queues) queues.set(tabId, queue.filter((r) => r.id !== id));
 }
 
-export function answerPermission(tabId: string, requestId: string, result: PermissionResult) {
+export function answerPermission(tabId: string, requestId: string, result: PermissionResult, remember = result !== "dismiss") {
   const request = pageOf(tabId).permission;
   if (!request || request.id !== requestId) return;
-  void resolvePermission(request.id, result, result !== "dismiss");
+  void resolvePermission(request.id, result, remember);
   if (result === "accept" && request.permissions.includes("notifications")) {
     void ensureNotificationPermission(useBrowser.getState().tabs[tabId]?.windowId);
   }
@@ -101,13 +102,26 @@ const KINDS: Record<PermissionKind, Describe> = {
   capturedSurfaceControl: { icon: "rectangle.on.rectangle", question: (s) => `Allow ${s} to scroll and zoom the tab you share?` },
 };
 
+const ONE_TIME_KINDS = new Set<PermissionKind>(["camera", "microphone", "location"]);
+
+export const canAllowOnce = (request: PermissionRequest) => request.permissions.length > 0 && request.permissions.every((k) => ONE_TIME_KINDS.has(k));
+
+const ORIGIN_PARTS = /^([a-z][a-z0-9+.-]*):\/\/(?:[^@/?#]*@)?(\[[^\]]*\]|[^:/?#]*)(?::(\d+))?/i;
+const DEFAULT_PORTS: Record<string, string> = { http: "80", https: "443" };
+
+export function originForDisplay(origin: string): string {
+  const parts = ORIGIN_PARTS.exec(origin.trim());
+  if (!parts?.[2]) return origin;
+  const scheme = parts[1]!.toLowerCase();
+  const port = parts[3] && parts[3] !== DEFAULT_PORTS[scheme] ? `:${parts[3]}` : "";
+  const host = displayHost(parts[2].toLowerCase()) + port;
+  return scheme === "https" ? host : `${scheme}://${host}`;
+}
+
 const list = (words: string[]) => (words.length < 2 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`);
 
 export function describePermission(request: PermissionRequest): { icons: string[]; question: string } {
-  let site = request.origin;
-  try {
-    site = new URL(request.origin).hostname.replace(/^www\./, "") || request.origin;
-  } catch {}
+  const site = originForDisplay(request.origin);
   const kinds = request.permissions.map((k) => KINDS[k] ?? { icon: "questionmark.circle", noun: k });
   const icons = [...new Set(kinds.map((k) => k.icon))];
   const single = kinds.length === 1 ? kinds[0]!.question : undefined;
