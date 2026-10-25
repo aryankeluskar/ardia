@@ -4,7 +4,7 @@ import { PSL_TLDS } from "./tlds.ts";
 import { domainToASCII } from "node:url";
 import { cleanUrl } from "./cleanUrl.ts";
 import { displayHost, hostSpoofReason, punycodeEncode } from "./idn.ts";
-import { breadcrumb, fixupUrl, resolveInput, urlForDisplay } from "./omnibox.ts";
+import { breadcrumb, classifyPaste, fixupUrl, resolveInput, stripJavascriptSchemes, urlForDisplay, withoutPastedJavascript } from "./omnibox.ts";
 import { displayUrl } from "./suggest.ts";
 
 test("resolveInput turns typed text into a URL", () => {
@@ -176,5 +176,65 @@ test("random hosts: a known TLD or a port navigates, a bare unknown name or a sp
     const bare = fixupUrl(unknown + pick(["", "/x", "?q=1", "#t"]));
     assert.equal(bare, null, unknown);
     assert.ok(fixupUrl(`${unknown}:${1 + rnd(65535)}`), "a port makes it a URL");
+  }
+});
+
+test("stripJavascriptSchemes works like Chrome's StripJavascriptSchemas", () => {
+  assert.equal(stripJavascriptSchemes("javascript:alert(1)"), "alert(1)");
+  assert.equal(stripJavascriptSchemes("  javascript:javascript:alert(1)"), "alert(1)");
+  assert.equal(stripJavascriptSchemes("\u0001JaVaScRiPt: \u0000\tjavascript:\n x"), "x");
+  assert.equal(stripJavascriptSchemes("  javascript://%0Aalert(1)"), "//%0Aalert(1)");
+  for (const text of ["  hello", "java script:x", "https://example.com/javascript:x", "javascript tutorial", "%6Aavascript:x", ""]) {
+    assert.equal(stripJavascriptSchemes(text), text, text);
+  }
+});
+
+test("pasted javascript: URLs never navigate", () => {
+  assert.deepEqual(classifyPaste("javascript://x%0Aalert(1)"), { kind: "search", query: "//x%0Aalert(1)" });
+  assert.deepEqual(classifyPaste("javascript:alert(document.domain)"), { kind: "search", query: "alert(document.domain)" });
+  assert.deepEqual(classifyPaste("\n JAVASCRIPT:javascript:\u0001https://example.com/a"), { kind: "go", url: "https://example.com/a" });
+  assert.equal(classifyPaste("javascript:"), null);
+  assert.equal(classifyPaste(" \u0000javascript: javascript:\t"), null);
+  assert.deepEqual(classifyPaste("javascript tutorial"), { kind: "search", query: "javascript tutorial" });
+  assert.deepEqual(classifyPaste("https://example.com/javascript:x"), { kind: "go", url: "https://example.com/javascript:x" });
+  const lures = ["javascript://%0Adocument.title=1", "JaVaScRiPt://x", "\tjavascript://x", "\u0001javascript://x", "javascript:javascript://x", "javascript:%0Aalert(1)"];
+  for (const text of lures) {
+    const action = classifyPaste(text);
+    assert.ok(!action || action.kind === "search" || !/javascript:/i.test(action.url), text);
+  }
+});
+
+test("a javascript: URL pasted into the field loses its scheme; one typed key by key keeps it", () => {
+  assert.equal(withoutPastedJavascript("", "javascript://x%0Aalert(1)"), "//x%0Aalert(1)");
+  assert.equal(withoutPastedJavascript("https://www.facebook.com/some/long/page", "javascript:alert(1)"), "alert(1)");
+  assert.equal(withoutPastedJavascript("javascript", "javascript:x"), "x");
+  let typed = "";
+  for (const key of "javascript://x%0Aalert(1)") typed = withoutPastedJavascript(typed, typed + key);
+  assert.equal(typed, "javascript://x%0Aalert(1)");
+  assert.equal(withoutPastedJavascript("javascript tutorial", "javascript:"), "javascript:");
+  assert.equal(withoutPastedJavascript("javascript:alert(1)", "javascript:alert(12)"), "javascript:alert(12)");
+  assert.equal(withoutPastedJavascript("hello", "hello world"), "hello world");
+});
+
+test("displayed URLs never show a username or password", () => {
+  assert.equal(urlForDisplay("https://user:secret@example.com/x"), "example.com/x");
+  assert.equal(urlForDisplay("https://user@www.example.com/"), "example.com/");
+  assert.equal(urlForDisplay("https://a@b@evil.com/x@y"), "evil.com/x@y");
+  assert.equal(urlForDisplay("https://accounts.google.com@evil.com/"), "evil.com/");
+  assert.equal(urlForDisplay("mailto:hi@example.com"), "mailto:hi@example.com");
+  assert.equal(breadcrumb("https://user:secret@example.com/x").host, "example.com");
+  assert.equal(breadcrumb("https://a@b@evil.com/").host, "evil.com");
+});
+
+test("a non-default port is part of the displayed host", () => {
+  assert.equal(breadcrumb("https://example.com:8443/x").host, "example.com:8443");
+  assert.equal(breadcrumb("http://localhost:3000/").host, "localhost:3000");
+  assert.equal(breadcrumb("http://[::1]:8080/").host, "[::1]:8080");
+  assert.equal(breadcrumb("https://user:pw@www.example.com:8443/").host, "example.com:8443");
+  assert.equal(breadcrumb("https://example.com:443/").host, "example.com");
+  assert.equal(breadcrumb("http://example.com:80/").host, "example.com");
+  assert.equal(breadcrumb("https://example.com/").host, "example.com");
+  for (const url of ["https://example.com:8443/x", "https://user:pw@example.com:8443/a?b", "http://[::1]:8080/", "https://www.example.com/", "https://xn--bcher-kva.de:81/"]) {
+    assert.ok(urlForDisplay(url).startsWith(breadcrumb(url).host), url);
   }
 });

@@ -26,9 +26,8 @@ import { GlassFill, liquidGlass } from "./glass";
 import { TranslateButton } from "./site/TranslateControls";
 import { ZoomIndicator } from "./site/ZoomControls";
 
-type ToolbarTab = Pick<Tab, "id" | "url" | "title" | "windowId" | "zoom">;
-const toolbarTab = (t: Tab | undefined): ToolbarTab | undefined =>
-  t && { id: t.id, url: t.url, title: isWebUrl(t.url) ? "" : t.title, windowId: t.windowId, zoom: t.zoom };
+type ToolbarTab = Pick<Tab, "id" | "url" | "windowId" | "zoom">;
+const toolbarTab = (t: Tab | undefined): ToolbarTab | undefined => t && { id: t.id, url: t.url, windowId: t.windowId, zoom: t.zoom };
 const isWebUrl = (url: string) => /^https?:/i.test(url);
 export const useToolbarTab = (tabId: string | undefined) => useBrowser(useShallow((s) => toolbarTab(tabId ? s.tabs[tabId] : undefined)));
 
@@ -293,8 +292,7 @@ export const UrlField = memo(function UrlField({
   const host = isFile ? "File" : breadcrumb(tab.url).host;
   const full = isFile ? ` ${safeDecode(tab.url.slice("file://".length))}` : urlForDisplay(tab.url);
   const path = !isFile && full.startsWith(host) ? full.slice(host.length) : full;
-  const web = isWebUrl(tab.url);
-  const trail = hovered ? path : showFullUrl ? path.replace(/\/$/, "") : !web && tab.title ? ` / ${tab.title}` : "";
+  const trail = hovered ? path : showFullUrl || !isWebUrl(tab.url) ? path.replace(/\/$/, "") : "";
 
   return (
     <View
@@ -335,7 +333,7 @@ export const UrlField = memo(function UrlField({
       <Pressable onPress={() => openPanel(tab.url)} style={{ flex: 1, height: sidebar?.height ?? 30, justifyContent: "center", paddingLeft: insecure ? LOCK.gap : sidebar ? 10 : urlTextLeft(false) }}>
         {sidebar ? (
           <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 13, fontWeight: "500", color: palette.text }}>
+            <Text numberOfLines={1} ellipsizeMode="head" style={{ flexShrink: 1, fontSize: 13, fontWeight: "500", color: palette.text }}>
               {host}
             </Text>
             <FadeLabel
@@ -347,10 +345,16 @@ export const UrlField = memo(function UrlField({
             />
           </View>
         ) : (
-          <Text numberOfLines={1} style={{ fontSize: 13, color: palette.text }}>
-            <Text style={{ fontWeight: "500" }}>{host}</Text>
-            {trail ? <Text style={{ color: palette.secondary }}>{trail}</Text> : null}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <Text numberOfLines={1} ellipsizeMode="head" style={{ flexShrink: 1, fontSize: 13, fontWeight: "500", color: palette.text }}>
+              {host}
+            </Text>
+            {trail ? (
+              <Text numberOfLines={1} style={{ flex: 1, fontSize: 13, color: palette.secondary }}>
+                {trail}
+              </Text>
+            ) : null}
+          </View>
         )}
       </Pressable>
       </ContextMenuArea>

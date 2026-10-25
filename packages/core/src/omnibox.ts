@@ -7,7 +7,9 @@ const SEARCH_URL = "https://www.google.com/search?q=";
 
 export type ParsedUrl = { scheme: string; host: string; port: string; path: string; query: string; hash: string };
 
-const URL_PARTS = /^([a-z][a-z0-9+.-]*):\/\/(?:[^@/?#]*@)?(\[[^\]]*\]|[^:/?#]*)(?::(\d+))?([^?#]*)(\?[^#]*)?(#.*)?$/i;
+const URL_PARTS = /^([a-z][a-z0-9+.-]*):\/\/(?:[^/?#\\]*@)?(\[[^\]]*\]|[^:/?#]*)(?::(\d+))?([^?#]*)(\?[^#]*)?(#.*)?$/i;
+const SCHEME_AND_USERINFO = /^[a-z][a-z0-9+.-]*:\/\/(?:[^/?#\\]*@)?/i;
+const DEFAULT_PORTS: Record<string, string> = { http: "80", https: "443", ws: "80", wss: "443", ftp: "21" };
 
 function parseUrl(url: string): ParsedUrl | null {
   const m = URL_PARTS.exec(url.trim());
@@ -115,21 +117,44 @@ export function resolveInput(raw: string, search = SEARCH_URL): string {
   return fixupUrl(input) ?? searchUrlFor(search, input);
 }
 
+const JAVASCRIPT_SCHEMES = /^(?:[\s\u0000-\u001f\u007f-\u009f]*javascript:)+[\s\u0000-\u001f\u007f-\u009f]*/i;
+
+export function stripJavascriptSchemes(text: string): string {
+  const schemes = JAVASCRIPT_SCHEMES.exec(text);
+  return schemes ? text.slice(schemes[0].length) : text;
+}
+
+function insertedCharacters(before: string, after: string): number {
+  const shorter = Math.min(before.length, after.length);
+  let head = 0;
+  while (head < shorter && before[head] === after[head]) head++;
+  let tail = 0;
+  while (tail < shorter - head && before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail++;
+  return [...after.slice(head, after.length - tail)].length;
+}
+
+export function withoutPastedJavascript(before: string, after: string): string {
+  const stripped = stripJavascriptSchemes(after);
+  return stripped !== after && insertedCharacters(before, after) > 1 ? stripped : after;
+}
+
 export type PasteAction = { kind: "go"; url: string } | { kind: "search"; query: string };
 
 export function classifyPaste(text: string): PasteAction | null {
-  const trimmed = text.trim();
+  const trimmed = stripJavascriptSchemes(text).trim();
   if (!trimmed) return null;
   const url = /\s/.test(trimmed) ? null : fixupUrl(trimmed);
-  if (url && !/^(about|data):/i.test(url)) return { kind: "go", url: cleanUrl(url) };
+  if (url && !/^(about|data|javascript):/i.test(url)) return { kind: "go", url: cleanUrl(url) };
   return { kind: "search", query: trimmed.replace(/\s+/g, " ").slice(0, 2000) };
 }
 
 export function breadcrumb(url: string, title?: string): { host: string; trail: string[] } {
   const parsed = parseUrl(url);
   const app = appUrlOrigin(url);
-  const host = app ?? (parsed ? displayHost(parsed.host).replace(/^www\./, "") : url);
-  const seen = new Set([host.toLowerCase(), ...(app && parsed ? [parsed.host] : [])]);
+  const name = parsed ? displayHost(parsed.host).replace(/^www\./, "") : url;
+  const port = parsed?.port && parsed.port !== DEFAULT_PORTS[parsed.scheme] ? `:${parsed.port}` : "";
+  const host = app ?? name + port;
+  const seen = new Set([host.toLowerCase(), name.toLowerCase(), ...(app && parsed ? [parsed.host] : [])]);
   const trail = (title ?? "")
     .split(/\s[|/·–—-]\s/)
     .map((s) => s.trim())
@@ -144,7 +169,7 @@ export function breadcrumb(url: string, title?: string): { host: string; trail: 
 
 export function urlForDisplay(url: string): string {
   if (appUrlOrigin(url)) return toAppUrl(url).replace(/^([^/]*\/\/[^/?#]*)\/(?=[?#]|$)/, "$1");
-  const rest = url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  const rest = url.replace(SCHEME_AND_USERINFO, "");
   const host = /^[^/?#:]*/.exec(rest)![0];
   return (displayHost(host) + rest.slice(host.length)).replace(/^www\./i, "");
 }

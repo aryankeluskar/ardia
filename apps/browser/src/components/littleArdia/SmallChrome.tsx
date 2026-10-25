@@ -113,11 +113,17 @@ export function PageLabel({ tab, hovered = false, label }: { tab: Tab; hovered?:
             accessible={!!label}
             accessibilityLabel={label}
             numberOfLines={1}
+            ellipsizeMode="head"
             style={{ flexShrink: 0, maxWidth: "60%", fontSize: 13, fontWeight: "500", color: theme.textPrimary }}
           >
             {host}
           </Text>
-          {title && title !== host ? <FadeLabel text={`  ${title}`} fontSize={13} color={theme.textSecondary} fadeWidth={14} style={{ flex: 1, height: 18 }} /> : null}
+          {title && title !== host ? (
+            <>
+              <View style={{ width: 1, height: 12, borderRadius: 0.5, marginHorizontal: 6, backgroundColor: theme.textTertiary }} />
+              <FadeLabel text={title} fontSize={13} color={theme.textSecondary} fadeWidth={14} style={{ flex: 1, height: 18 }} />
+            </>
+          ) : null}
         </View>
       ) : (
         <Text numberOfLines={1} style={{ flex: 1, fontSize: 13, color: theme.placeholder }}>

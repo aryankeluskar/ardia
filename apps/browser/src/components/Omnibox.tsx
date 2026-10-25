@@ -1,4 +1,4 @@
-import { displayUrl, asksForBackspace, keywordBySpace, resolveInput, searchUrl, scopedSearchUrl, siteSearchKey, type SearchScope, type Suggestion } from "@ardia/core";
+import { displayUrl, asksForBackspace, keywordBySpace, resolveInput, searchUrl, scopedSearchUrl, siteSearchKey, withoutPastedJavascript, type SearchScope, type Suggestion } from "@ardia/core";
 import { ContextMenuArea, Symbol, copyText, pickFiles, showMenu, startDictation } from "@ardia/shell";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { findNodeHandle, Pressable, Text, TextInput, View } from "react-native";
@@ -17,7 +17,7 @@ import { registerHeroBar, savedNtpQuery, saveNtpQuery, type BarDismissal, type B
 import { dispositionFor, openFromBar, switchFromBar, type Disposition } from "./omnibox/open";
 import { openFromNewTabBar } from "./omnibox/newTabBar";
 import type { NewTabTarget } from "../store/types";
-import { clipboardPasteAction, pasteMenuItem, pasteTarget, readClipboard } from "./omnibox/paste";
+import { clipboardPasteAction, pasteMenuItem, pasteTarget, readPastedText } from "./omnibox/paste";
 import { ScopeChip } from "./omnibox/ScopeChip";
 import { SuggestionIcon, SuggestionList, isRemovable, type RowActions } from "./omnibox/SuggestionRow";
 import { useDropdownStart, useOpenTabsStart } from "./omnibox/dropdownStart";
@@ -310,7 +310,7 @@ export function Omnibox({
     if (choice === "pasteAndGo" && paste) return go(pasteTarget(paste));
     if (choice === "copy" || choice === "cut") copyText(value.slice(start, end));
     if (choice === "cut" || choice === "paste") {
-      const insert = choice === "paste" ? (await readClipboard()).replace(/\s*\n\s*/g, " ") : "";
+      const insert = choice === "paste" ? await readPastedText() : "";
       const next = value.slice(0, start) + insert + value.slice(end);
       setTyped(next);
       setEdited(true);
@@ -349,13 +349,15 @@ export function Omnibox({
     focusEcho.current = false;
     keyAt.current = Date.now();
     journeyKeystroke(tabId);
-    const bySpace = scope ? null : keywordBySpace(typed, next);
+    const text = withoutPastedJavascript(value, change.typed);
+    const bySpace = scope ? null : keywordBySpace(typed, text);
     const keyword = bySpace ? keywordScope(bySpace.keyword, windowId) : null;
     if (bySpace && keyword) return enterScope(keyword, bySpace.from);
     setEdited(true);
-    setTyped(change.typed);
+    setTyped(text);
+    if (text !== change.typed) setPendingSelection({ start: text.length, end: text.length });
     setSuppressCompletion(change.suppress);
-    setSelected(opensTab && !change.typed.trim() ? -1 : 0);
+    setSelected(opensTab && !text.trim() ? -1 : 0);
   };
 
   useOmniboxDriver(`${windowId}:${variant}`, {
