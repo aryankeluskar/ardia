@@ -122,8 +122,15 @@ owner's Mac ──▶ ardia.dev/_ch/ (read-only ClickHouse user)   ardia.dev/_re
 
 - **Where it runs:** `infra/telemetry/hexclave.deploy.ts` (ClickHouse, OpenTelemetry Collector, SeaweedFS; all
   private, images pinned by digest) and the routes in `infra/site/nginx.conf`. Only nginx is public. It limits
-  bodies (512 KB events, 2 MB replay chunks), rates per visitor (20/s events, 5/s replays), and only accepts
-  OTLP logs (no traces or metrics).
+  bodies (512 KB events, 2 MB replay chunks) and rates per visitor address (Fly's `Fly-Client-IP`, or the
+  connection's address when that's missing): 20/s events and 5/s replays in bursts, and a slow bucket standing in
+  for a daily quota (3,000 event posts, then 10 a minute; 2,000 replay chunks, then 4 a minute). nginx counts
+  requests, not bytes. It only accepts OTLP logs (no traces or metrics). Replay chunks are POST-only and
+  write-once: before each write nginx asks SeaweedFS whether the chunk exists (a HEAD with a far-future
+  `If-Modified-Since`, answered 304 when it does) and refuses an existing one with 403. Every response carries
+  HSTS, `nosniff`, `Referrer-Policy` and a CSP that enforces `frame-ancestors 'self'`, `object-src 'none'` and
+  `base-uri 'self'`; the full policy is report-only until the site's inline scripts get hashes. Plain HTTP gets a
+  301 to HTTPS (from Fly's `X-Forwarded-Proto`).
 - **Format:** each event is an OTLP log record. The body and the `event` attribute are the event name, plus
   `uuid`, `distinct_id`, `$session_id` (site) and every property, under PostHog's names. Senders:
   `apps/site/src/scripts/telemetry/` and `apps/browser/src/telemetry/`. The collector
@@ -132,8 +139,8 @@ owner's Mac ──▶ ardia.dev/_ch/ (read-only ClickHouse user)   ardia.dev/_re
   hash; `collector/fetch-geoip.mjs` falls back to the byte-identical npm mirror `dbip-city-lite` once DB-IP drops
   the month, and relabels the file's `database_type` to `GeoLite2-City`, the only City type the collector's
   geoip processor accepts; the footer carries DB-IP's required link), then drops it. To update it, bump the month,
-  the mirror version and the hash in `collector/Dockerfile`. It adds no location to events that carry `$geoip_disable` (the app
-  sends it). No IP is ever stored.
+  the mirror version and the hash in `collector/Dockerfile`. It adds no location to records that carry `$geoip_disable` (the app
+  sends it on its events and its logs). No IP is ever stored.
 - **Daily count (always on, added 2026-10-25):** besides the opt-in events, every copy sends
   one `daily_active` event per UTC day (`$lib` `ardia-daily`), sharing on or off, about 30 s after launch and again
   after UTC midnight if it's still open. It carries `$app_version`, `channel`, `os_major`, `arch`, `$environment`
@@ -143,6 +150,7 @@ owner's Mac ──▶ ardia.dev/_ch/ (read-only ClickHouse user)   ardia.dev/_re
   count twice, and every day of an outage still counts. No persistent ID: `uuid` and `distinct_id` are a fresh random UUID
   each day, and `$geoip_disable` keeps the address out. Counting rows gives DAU; counting `weekly`/`monthly`/`first`
   rows gives WAU, MAU and new installs (Brave's usage-ping model). Sender: `apps/browser/src/telemetry/daily.ts`.
+
 - **Tables** (`infra/telemetry/clickhouse/schema.sql`): `telemetry.events` is the one to query (PostHog's
   shape: `uuid, event, distinct_id, session_id, timestamp, properties Map, elements_chain, source`). It unions
   `otel_logs` (new data) and `posthog_events` (PostHog Cloud history, 2026-09-29 09:04 → 2026-09-30).
@@ -153,8 +161,16 @@ owner's Mac ──▶ ardia.dev/_ch/ (read-only ClickHouse user)   ardia.dev/_re
   `node scripts/replay.mjs --list` / `<session-id>`. The stats skill's queries are in
   `.claude/skills/stats/queries.md`. Secrets are Hexclave project secrets (`TELEMETRY_*`); a backup is in
   `~/.config/ardia/telemetry-secrets.env`.
-  hekuto reads the same tables as `reader` through a Composio ClickHouse connection (Basic auth, base URL
-  `https://ardia.dev/_ch`); `/_ch/` takes Basic auth for `reader` only.
+  `reader` (the owner's scripts, the dashboard) runs `readonly=2` with constraints: a query may lower its
+  limits (180 s, 2 GB, 1,000,000 result rows) but can't raise or zero them.
+  hekuto reads through a Composio ClickHouse connection (Basic auth, base URL `https://ardia.dev/_ch`) as its own
+  user, `hekuto`: password in the `TELEMETRY_CLICKHOUSE_HEKUTO_PASSWORD` secret, `SELECT` on `telemetry.*` only,
+  `reader`'s limits, and its own quota (per hour 300 queries, 15 min of query time, 5M result rows, 10B rows
+  read; per day 2,000 queries, 1 h, 20M, 50B). Composio holds that password, so it's the one third party that
+  can read the tables. `/_ch/` takes `reader` or `hekuto` and refuses an empty password (ClickHouse treats an
+  empty or unset password variable as no password). Rotating `reader` is now only the owner's: change
+  `TELEMETRY_CLICKHOUSE_READER_PASSWORD`, redeploy the `posthog` and `dashboard` groups, and update
+  `telemetry.env` and the backup.
 - **Checks of the pipeline:** send with service `ardia-selftest` (or version `0.0.0-selftest`); the views
   leave those out.
 - **History and old versions:** `posthog_events` (`source = 'posthog-cloud'` in the view) is the history from

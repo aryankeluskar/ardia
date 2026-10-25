@@ -18,6 +18,16 @@ const SECURITY_HEADERS = {
   "Strict-Transport-Security": "max-age=31536000",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   "X-Robots-Tag": "noindex, nofollow",
+  "Content-Security-Policy": [
+    "img-src 'self' data: blob: https://ardia.dev https://www.ardia.dev",
+    "media-src 'self' data: blob: https://ardia.dev https://www.ardia.dev",
+    "font-src 'self' data: blob: https://ardia.dev https://www.ardia.dev",
+    "style-src 'self' 'unsafe-inline' data: blob:",
+    "connect-src 'self' https://api.hexclave.com https://api1.hexclave.com https://api2.hexclave.com",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+  ].join("; "),
 };
 
 function withHeaders(response, extra = {}) {
