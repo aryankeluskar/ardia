@@ -39,10 +39,10 @@ if [ -z "$signature" ]; then
   fi
   hint=""
   [ "$required" = 1 ] || hint="; only the first release that signs the feed builds on an unsigned one, with ALLOW_UNSIGNED_FEED=1"
-  echo "FAIL  $feed carries a Sparkle signature  (it has none$hint)"
+  echo "FAIL  $feed isn't signed  (it has no Sparkle signature$hint)"
   exit 1
 fi
 swiftc -O "$here/ed25519.swift" -o "$work/ed25519" 2>/dev/null
 "$work/ed25519" verify "$work/signed" "$signature" "$key" \
-  || { echo "FAIL  $feed's Sparkle signature verifies with $key"; exit 1; }
+  || { echo "FAIL  $feed's Sparkle signature doesn't verify with $key"; exit 1; }
 echo "PASS  $feed's Sparkle signature verifies with $key"

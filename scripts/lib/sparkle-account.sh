@@ -2,10 +2,8 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
-sparkle="$root/apps/browser/macos/Pods/Sparkle/bin"
 has_key() {
-  security find-generic-password -s https://sparkle-project.org -a "$1" >/dev/null 2>&1 \
-    || "$sparkle/generate_keys" --account "$1" -p >/dev/null 2>&1
+  security find-generic-password -s https://sparkle-project.org -a "$1" >/dev/null 2>&1
 }
 account="${SPARKLE_ACCOUNT:-}"
 if [ -n "$account" ]; then
