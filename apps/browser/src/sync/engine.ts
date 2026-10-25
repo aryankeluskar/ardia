@@ -147,6 +147,7 @@ let running = false;
 let again = false;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let forcePasswords = false;
+let passwordsBlocked = false;
 const passwordAdapters = new Map<string, Adapter>();
 const extensionAdapters = new Map<string, ExtensionsAdapter>();
 
@@ -184,8 +185,10 @@ async function loadState() {
     if (SyncNative && (await protectLegacyPasswords(scopes, journal, (passwords) => SyncNative!.protectPasswords(passwords))) && journalOnDisk) {
       await saveDocument(JOURNAL, await SyncNative.sealLocal(JSON.stringify({ journal })));
     }
+    passwordsBlocked = false;
   } catch (error) {
-    console.warn("[sync] couldn't move saved passwords out of the sync state", error);
+    passwordsBlocked = true;
+    console.warn("[sync] couldn't move saved passwords out of the sync state; passwords don't sync until it works", error);
   }
   const clock = new Clock(doc.deviceId ?? "", doc.clock);
   for (const scope of new Set([...Object.keys(doc.seqs ?? {}), ...Object.keys(journal)])) {
@@ -302,7 +305,7 @@ function profileAdapters(profileId: string, retiring: boolean): Adapter[] {
     ...(t.bookmarks && ownsData ? [inTodaysNames(bookmarksAdapter(profileId))] : []),
     ...(t.history && ownsData ? [inTodaysNames(historyAdapter(profileId))] : []),
     inTodaysNames(deviceTabsAdapter(profileId, id, deviceName, !t.tabs)),
-    ...(t.passwords && ownsData ? [passwords] : []),
+    ...(t.passwords && ownsData && !passwordsBlocked ? [passwords] : []),
     ...(t.extensions && ownsData && extensionSyncAvailable() ? [extensionsOf(profileId)] : []),
   ];
 }
@@ -334,7 +337,7 @@ export async function syncNow() {
 export async function unlockPasswordSync(): Promise<boolean> {
   const unlocked = (await SyncNative?.unlockPasswords()) ?? false;
   publishUi();
-  if (unlocked && doc.enabled) {
+  if (unlocked && doc.enabled && useSync.getState().status !== "locked") {
     forcePasswords = true;
     scheduleSync(0);
   }

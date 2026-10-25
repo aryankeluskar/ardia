@@ -48,7 +48,7 @@ type SyncNative = {
   copyRecoveryKit(): Promise<boolean>;
   shareRecoveryKit(): Promise<boolean>;
   copyRecoveryPhrase(): Promise<boolean>;
-  lockRecoveryPhrase(): void;
+  lockRecoveryPhrase(): Promise<void>;
   revealFolder(path: string): Promise<void>;
   unlockPasswords(): Promise<boolean>;
   passwordsUnlocked(): boolean;

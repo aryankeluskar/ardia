@@ -55,7 +55,7 @@ final class SyncPasswordsTests: XCTestCase {
     let bookmark = #"{"k":"bm:x","h":"0","v":{"k":"u","p":"bar","t":"pw: \"bank\"","u":"https://bank.example/"}}"#
     let wire = #"{"v":1,"kind":"log","device":"devA","seq":3,"at":1729,"ops":["# + bookmark
       + #",{"k":"pw:https://bank.example\nalice","h":"1","v":{"o":"https://bank.example","u":"alice \"a\"","p":"hunter2 é 😀 \\ \/ \n \"q\""}},{"k":"pw:https://gone.example\nbob","h":"2","v":null}]}"#
-    let local = passwords.fromWire(wire)
+    let local = try passwords.fromWire(wire)
     XCTAssertFalse(local.contains("hunter2"))
     XCTAssertTrue(local.contains(bookmark), "other records keep their bytes")
     let value = try XCTUnwrap(((try parsed(local))["ops"] as? [NSDictionary])?[1]["v"] as? [String: String])
@@ -71,7 +71,7 @@ final class SyncPasswordsTests: XCTestCase {
 
   func testSnapshotRecordsRoundTrip() throws {
     let wire = #"{"v":1,"kind":"snapshot","device":"devB","at":5,"vv":{"devA":3},"seen":{"devA":4},"records":{"h:https://a.example/":{"h":"9","v":{"t":"A","n":1,"vt":[1.5e3,2]},"o":["devA",2]},"pw:https://a.example\nalice":{"h":"1","v":{"o":"https://a.example","u":"alice","p":"s3cret"},"o":["devA",1]},"pw:https://b.example\nbob":{"h":"2","v":null,"o":["devA",3]}}}"#
-    let local = passwords.fromWire(wire)
+    let local = try passwords.fromWire(wire)
     XCTAssertFalse(local.contains("s3cret"))
     XCTAssertTrue(local.contains(#""h:https://a.example/":{"h":"9","v":{"t":"A","n":1,"vt":[1.5e3,2]},"o":["devA",2]}"#))
     XCTAssertEqual(try parsed(try passwords.toWire(local)), try parsed(wire))
@@ -79,19 +79,26 @@ final class SyncPasswordsTests: XCTestCase {
 
   func testPayloadsWithoutPasswordsAreUntouched() throws {
     let plain = #"{"v":1,"kind":"log","device":"d","seq":1,"at":1,"ops":[{"k":"bm:y","h":"3","v":{"t":"pw:x","u":"u","p":"bar"}}]}"#
-    XCTAssertEqual(passwords.fromWire(plain), plain)
+    XCTAssertEqual(try passwords.fromWire(plain), plain)
     XCTAssertEqual(try passwords.toWire(plain), plain)
     let titled = #"{"ops":[{"k":"bm:z","h":"1","v":{"t":"\"pw:","p":"bar"}}]}"#
-    XCTAssertEqual(passwords.fromWire(titled), titled)
+    XCTAssertEqual(try passwords.fromWire(titled), titled)
     let broken = #"{"ops":[{"k":"pw:a\nb","v":{"p":"x"}"#
-    XCTAssertEqual(passwords.fromWire(broken), broken)
+    XCTAssertThrowsError(try passwords.fromWire(broken))
     XCTAssertThrowsError(try passwords.toWire(broken))
+  }
+
+  func testAPasswordWithALoneSurrogateIsRefusedNotChanged() throws {
+    let lone = #"{"ops":[{"k":"pw:a\nb","h":"1","v":{"o":"a","u":"b","p":"x\ud800y"}}]}"#
+    XCTAssertThrowsError(try passwords.fromWire(lone)) { XCTAssertEqual($0 as? SyncPasswords.Failure, .malformed) }
+    let elsewhere = #"{"ops":[{"k":"pw:a\nb","h":"1","v":{"o":"a\udc00","u":"b","p":"ok"}}]}"#
+    XCTAssertFalse(try passwords.fromWire(elsewhere).contains(#""p":"ok""#))
   }
 
   func testLegacyValuesPassThroughAndForeignSecretsRefuse() throws {
     let legacy = #"{"ops":[{"k":"pw:a\nb","h":"1","v":{"o":"a","u":"b","p":"old"}}]}"#
     XCTAssertEqual(try passwords.toWire(legacy), legacy)
-    let foreign = SyncPasswords(entropy: RecoveryPhrase.generateEntropy()).fromWire(legacy)
+    let foreign = try SyncPasswords(entropy: RecoveryPhrase.generateEntropy()).fromWire(legacy)
     XCTAssertThrowsError(try passwords.toWire(foreign)) { XCTAssertEqual($0 as? SyncPasswords.Failure, .unreadableSecret) }
     XCTAssertNotEqual(SyncPasswords(entropy: RecoveryPhrase.generateEntropy()).digest("old"), passwords.digest("old"))
     XCTAssertNotEqual(try passwords.seal("old"), try passwords.seal("old"))

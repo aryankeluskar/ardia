@@ -103,11 +103,11 @@ public struct SyncPasswords {
     }
   }
 
-  public func fromWire(_ payload: String) -> String {
-    (try? rewrite(payload) { fields in
+  public func fromWire(_ payload: String) throws -> String {
+    try rewrite(payload) { fields in
       guard let password = fields["p"] else { return nil }
       return [("d", digest(password)), ("s", try seal(password))]
-    }) ?? payload
+    }
   }
 
   func rewrite(_ payload: String, _ replacement: ([String: String]) throws -> [(String, String)]?) throws -> String {
@@ -120,7 +120,7 @@ public struct SyncPasswords {
     for value in scan.found.sorted(by: { $0.range.lowerBound < $1.range.lowerBound }) where value.range.lowerBound >= copied {
       var fields: [String: String] = [:]
       for member in value.members where member.isString && Self.rewrittenFields.contains(member.key) {
-        fields[member.key] = try JSONText.unquote(bytes[(member.value.lowerBound + 1)..<(member.value.upperBound - 1)])
+        fields[member.key] = try JSONText.unquote(bytes[(member.value.lowerBound + 1)..<(member.value.upperBound - 1)], strict: true)
       }
       guard let added = try replacement(fields) else { continue }
       let kept = value.members.filter { !Self.rewrittenFields.contains($0.key) }.map { Array(bytes[$0.range]) }
@@ -279,20 +279,32 @@ enum JSONText {
     return out + "\""
   }
 
-  static func unquote(_ raw: ArraySlice<UInt8>) throws -> String {
+  static func unquote(_ raw: ArraySlice<UInt8>, strict: Bool = false) throws -> String {
     guard raw.contains(UInt8(ascii: "\\")) else { return String(decoding: raw, as: UTF8.self) }
     var out: [UInt8] = []
     var units: [UInt16] = []
-    func flushUnits() {
+    func flushUnits() throws {
       guard !units.isEmpty else { return }
-      out += Array(String(decoding: units, as: UTF16.self).utf8)
+      var decoded = String.UnicodeScalarView()
+      var codec = UTF16()
+      var iterator = units.makeIterator()
+      decoding: while true {
+        switch codec.decode(&iterator) {
+        case .scalarValue(let scalar): decoded.append(scalar)
+        case .emptyInput: break decoding
+        case .error:
+          if strict { throw SyncPasswords.Failure.malformed }
+          decoded.append("\u{FFFD}")
+        }
+      }
+      out += Array(String(decoded).utf8)
       units.removeAll()
     }
     var index = raw.startIndex
     while index < raw.endIndex {
       let byte = raw[index]
       guard byte == UInt8(ascii: "\\") else {
-        flushUnits()
+        try flushUnits()
         out.append(byte)
         index += 1
         continue
@@ -307,7 +319,7 @@ enum JSONText {
         index += 6
         continue
       }
-      flushUnits()
+      try flushUnits()
       switch escape {
       case UInt8(ascii: "\""), UInt8(ascii: "\\"), UInt8(ascii: "/"): out.append(escape)
       case UInt8(ascii: "b"): out.append(0x08)
@@ -319,7 +331,7 @@ enum JSONText {
       }
       index += 2
     }
-    flushUnits()
+    try flushUnits()
     return String(decoding: out, as: UTF8.self)
   }
 }

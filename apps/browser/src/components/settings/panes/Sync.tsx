@@ -170,6 +170,7 @@ function SyncOn({ info }: { info: FolderInfo | null }) {
   const remoteProfiles = useSync((s) => s.remoteProfiles);
   const passwordsLocked = useSync((s) => s.passwordsLocked);
   const [passwordsRefused, setPasswordsRefused] = useState(false);
+  const [notCopied, setNotCopied] = useState(false);
   const profiles = useProfiles();
   const allProfiles = useBrowser((s) => s.profiles);
   const [, tick] = useState(0);
@@ -190,8 +191,8 @@ function SyncOn({ info }: { info: FolderInfo | null }) {
     ]);
     if (choice === "kit") showRecoveryKit();
     else if (choice === "copy") {
-      await SyncNative?.copyRecoveryPhrase();
-      SyncNative?.lockRecoveryPhrase();
+      setNotCopied((await SyncNative?.copyRecoveryPhrase()) === false);
+      void SyncNative?.lockRecoveryPhrase();
     } else if (choice === "now") await syncNow();
     else if (choice === "reveal" && info) await SyncNative?.revealFolder(info.path);
     else if (choice === "stop") showStopSync();
@@ -221,6 +222,12 @@ function SyncOn({ info }: { info: FolderInfo | null }) {
         </Row>
         <Row anchor="sync.folder" description={info ? folderLabel(info) : " "} />
       </Group>
+      {notCopied ? (
+        <View style={{ flexDirection: "row", gap: 6, marginTop: 8, paddingHorizontal: 2 }}>
+          <Symbol name="exclamationmark.circle.fill" size={11} color={colors.destructive} style={{ width: 14, height: 15 }} />
+          <Text style={{ flex: 1, fontSize: 11.5, lineHeight: 15, color: theme.textSecondary }}>Recovery code not copied: Ardia couldn’t confirm it’s you.</Text>
+        </View>
+      ) : null}
       {error && status !== "updated" ? (
         <View style={{ flexDirection: "row", gap: 6, marginTop: 8, paddingHorizontal: 2 }}>
           <Symbol name="exclamationmark.circle.fill" size={11} color={colors.destructive} style={{ width: 14, height: 15 }} />
