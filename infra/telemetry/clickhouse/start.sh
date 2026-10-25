@@ -7,7 +7,7 @@ mkdir -p /data/ch
 ulimit -n 1048576 2>/dev/null || ulimit -Sn "$(ulimit -Hn)"
 echo "[ac] open files: $(ulimit -Sn) (hard $(ulimit -Hn))"
 
-for password_var in CLICKHOUSE_OTEL_PASSWORD CLICKHOUSE_READER_PASSWORD CLICKHOUSE_HEKUTO_PASSWORD; do
+for password_var in CLICKHOUSE_ADMIN_PASSWORD CLICKHOUSE_OTEL_PASSWORD CLICKHOUSE_READER_PASSWORD CLICKHOUSE_HEKUTO_PASSWORD; do
   if [ -z "${!password_var:-}" ]; then
     export "$password_var=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
     echo "[ac] $password_var is empty: that user is locked with a random password" >&2

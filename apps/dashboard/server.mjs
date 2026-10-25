@@ -30,7 +30,7 @@ const SECURITY_HEADERS = {
     "media-src 'self' data: blob: https://ardia.dev https://www.ardia.dev",
     "font-src 'self' data: blob: https://ardia.dev https://www.ardia.dev",
     "style-src 'self' 'unsafe-inline' data: blob:",
-    "connect-src 'self' https://*.hexclave.com",
+    "connect-src 'self' https://api.hexclave.com https://api1.hexclave.com https://api2.hexclave.com",
     "object-src 'none'",
     "base-uri 'self'",
     "frame-ancestors 'none'",
