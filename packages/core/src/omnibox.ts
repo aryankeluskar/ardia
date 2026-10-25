@@ -1,8 +1,7 @@
 import { appUrlOrigin, toAppUrl } from "./appUrls.ts";
 import { cleanUrl } from "./cleanUrl.ts";
 import { displayHost, punycodeEncode } from "./idn.ts";
-import { PSL_ICANN_RULES } from "./publicSuffixes.ts";
-import { PSL_TLDS } from "./tlds.ts";
+import { PSL_ICANN_RULES, PSL_PRIVATE_RULES, PSL_TLDS } from "./publicSuffixes.ts";
 
 const SEARCH_URL = "https://www.google.com/search?q=";
 
@@ -50,7 +49,7 @@ const KNOWN_TLDS = new Set(
   ).split(" "),
 );
 let registries: Set<string> | undefined;
-const knownTld = (tld: string) => KNOWN_TLDS.has(tld) || (registries ??= new Set(PSL_TLDS.split(/\s+/))).has(tld);
+const knownTld = (tld: string) => KNOWN_TLDS.has(tld) || (registries ??= new Set(PSL_TLDS)).has(tld);
 
 function isLocalHost(host: string): boolean {
   return (
@@ -168,7 +167,7 @@ const asciiForm = (name: string) => name.split(".").map((label) => (/^[\x00-\x7f
 
 function loadSuffixRules(): SuffixRules {
   const rules: SuffixRules = { exact: new Set(), wildcard: new Set(), exception: new Set() };
-  for (const rule of PSL_ICANN_RULES.split(/\s+/)) {
+  for (const rule of `${PSL_ICANN_RULES} ${PSL_PRIVATE_RULES}`.split(/\s+/)) {
     const [set, name] = rule.startsWith("!") ? [rules.exception, rule.slice(1)] : rule.startsWith("*.") ? [rules.wildcard, rule.slice(2)] : [rules.exact, rule];
     set.add(name).add(asciiForm(name));
   }
@@ -196,7 +195,11 @@ export function registrableDomain(host: string): string {
   return labels.slice(-(suffix + 1)).join(".") + (host.endsWith(".") ? "." : "");
 }
 
-const shownName = (parsed: ParsedUrl) => displayHost(parsed.host).replace(/^www\./, "");
+const shownDomainHost = (display: string) => {
+  const domain = registrableDomain(display);
+  return display.startsWith("www.") && domain && display.length - domain.length >= 4 ? display.slice(4) : display;
+};
+const shownName = (parsed: ParsedUrl) => shownDomainHost(displayHost(parsed.host));
 const shownPort = (parsed: ParsedUrl) => (parsed.port && parsed.port !== DEFAULT_PORTS[parsed.scheme] ? `:${parsed.port}` : "");
 
 export function breadcrumb(url: string, title?: string): { host: string; trail: string[] } {
@@ -221,7 +224,7 @@ export function urlForDisplay(url: string): string {
   if (appUrlOrigin(url)) return toAppUrl(url).replace(/^([^/]*\/\/[^/?#]*)\/(?=[?#]|$)/, "$1");
   const rest = url.replace(SCHEME_AND_USERINFO, "");
   const host = /^[^/?#:]*/.exec(rest)![0];
-  return (displayHost(host) + rest.slice(host.length)).replace(/^www\./i, "");
+  return shownDomainHost(displayHost(host)) + rest.slice(host.length);
 }
 
 export type AddressParts = { host: string; domain: string; rest: string };
@@ -237,9 +240,10 @@ function decodedPath(path: string): string {
 export function addressParts(url: string): AddressParts {
   if (url.startsWith("file:")) return { host: "File", domain: "File", rest: ` ${decodedPath(url.slice("file://".length))}` };
   const { host } = breadcrumb(url);
-  const full = urlForDisplay(url);
-  const rest = full.startsWith(host) ? full.slice(host.length) : full;
   const parsed = appUrlOrigin(url) ? null : parseUrl(url);
-  const registrable = parsed ? registrableDomain(shownName(parsed)) : "";
+  const full = urlForDisplay(url);
+  const port = parsed && parsed.port === DEFAULT_PORTS[parsed.scheme] ? `:${parsed.port}` : "";
+  const rest = port && full.startsWith(host + port) ? full.slice(host.length + port.length) : full.startsWith(host) ? full.slice(host.length) : full;
+  const registrable = parsed ? registrableDomain(displayHost(parsed.host)) : "";
   return { host, domain: parsed && registrable ? registrable + shownPort(parsed) : host, rest };
 }

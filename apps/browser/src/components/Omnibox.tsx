@@ -358,7 +358,13 @@ export function Omnibox({
     if (bySpace && keyword) return enterScope(keyword, bySpace.from);
     setEdited(true);
     setTyped(text);
-    if (text !== change.typed) setPendingSelection({ start: text.length, end: text.length });
+    if (text !== change.typed) {
+      const lo = Math.min(edit.before.start, edit.before.end);
+      const hi = Math.max(edit.before.start, edit.before.end);
+      const replaced = Math.max(0, change.typed.length - (value.length - (hi - lo)));
+      const caret = Math.max(0, Math.min(lo + replaced - (change.typed.length - text.length), text.length));
+      setPendingSelection({ start: caret, end: caret });
+    }
     setSuppressCompletion(change.suppress);
     setSelected(opensTab && !text.trim() ? -1 : 0);
   };
