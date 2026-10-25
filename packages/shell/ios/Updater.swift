@@ -333,9 +333,15 @@ enum UpdatePrewarm {
       var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("ARDIA_") && !$0.key.hasPrefix("DYLD_") }
       env["ARDIA_PREWARM"] = "1"
       let began = Date()
-      guard let pid = spawnDisclaimingResponsibility(executable, environment: env) else {
+      guard let pid = spawnSuspendedDisclaimingResponsibility(executable, environment: env) else {
         return NSLog("Ardia: couldn't prewarm update \(version)")
       }
+      guard launchedCopySatisfiesDesignatedRequirement(pid) else {
+        kill(pid, SIGKILL)
+        waitpid(pid, nil, 0)
+        return NSLog("Ardia: not prewarming update \(version): the launched copy doesn't satisfy this app's designated requirement")
+      }
+      kill(pid, SIGCONT)
       DispatchQueue.main.async {
         running = pid
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
@@ -385,12 +391,20 @@ enum UpdatePrewarm {
     return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
   }
 
+  static func launchedCopySatisfiesDesignatedRequirement(_ pid: pid_t, requirement: SecRequirement? = designatedRequirement) -> Bool {
+    var code: SecCode?
+    guard let requirement,
+      SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributePid as String: pid] as CFDictionary, [], &code) == errSecSuccess, let code
+    else { return false }
+    return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
+  }
+
   private typealias DisclaimResponsibility = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
 
   private static let disclaimResponsibility: DisclaimResponsibility? = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_spawnattrs_setdisclaim")
     .map { unsafeBitCast($0, to: DisclaimResponsibility.self) }
 
-  static func spawnDisclaimingResponsibility(_ executable: URL, environment: [String: String]) -> pid_t? {
+  static func spawnSuspendedDisclaimingResponsibility(_ executable: URL, environment: [String: String]) -> pid_t? {
     var attributes: posix_spawnattr_t?
     var actions: posix_spawn_file_actions_t?
     posix_spawnattr_init(&attributes)
@@ -405,8 +419,8 @@ enum UpdatePrewarm {
     sigfillset(&allSignals)
     posix_spawnattr_setsigmask(&attributes, &noSignals)
     posix_spawnattr_setsigdefault(&attributes, &allSignals)
-    posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
-    _ = disclaimResponsibility?(&attributes, 1)
+    posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_START_SUSPENDED))
+    guard let disclaimResponsibility, disclaimResponsibility(&attributes, 1) == 0 else { return nil }
     posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
     posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0)
     posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0)
