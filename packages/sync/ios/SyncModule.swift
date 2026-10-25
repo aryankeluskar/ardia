@@ -269,23 +269,17 @@ public class SyncModule: Module {
     return root.appendingPathComponent(engineProfile.isEmpty ? "Default" : "Profile \(engineProfile)", isDirectory: true)
   }
 
-  static var scratchInstance: Bool { dataDirectory != nil || !isTeamSigned }
+  static var scratchInstance: Bool {
+    guard let host = NSClassFromString("ArdiaCoreHost"), (host as AnyObject).responds(to: NSSelectorFromString("usesMockKeychain")) else {
+      return false
+    }
+    return ((host as AnyObject).value(forKey: "usesMockKeychain") as? Bool) ?? false
+  }
 
   static func safeStorageSecret() throws -> Data {
     if scratchInstance { return Data("mock_password".utf8) }
     return try SafeStorageKeychain.secret(service: "Ardia Safe Storage", account: "Ardia")
   }
-
-  static let isTeamSigned: Bool = {
-    var code: SecCode?
-    guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return false }
-    var staticCode: SecStaticCode?
-    guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return false }
-    var info: CFDictionary?
-    guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
-          let dict = info as? [String: Any] else { return false }
-    return dict[kSecCodeInfoTeamIdentifier as String] != nil
-  }()
 }
 
 private final class KeyState {
