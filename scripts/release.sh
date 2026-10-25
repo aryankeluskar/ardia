@@ -149,6 +149,29 @@ if [ -n "$dirty" ]; then
   echo "$dirty" >&2
 fi
 
+engine_gate() {
+  local engine="$1" stable="$2" strict="$3" problem advice
+  [[ "$engine" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || die "can't read CHROMIUM_VERSION from engine/patches/build/env.sh (got '$engine')"
+  if ! [[ "$stable" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
+    problem="couldn't read Chrome's Mac Stable version from chromiumdash.appspot.com"
+    advice="a stable release checks its engine against it: try again, or set ALLOW_STALE_ENGINE=1 for an emergency release"
+  elif [ "${engine%%.*}" -lt "${stable%%.*}" ]; then
+    problem="the engine is Chromium $engine, a milestone behind Chrome's Mac Stable $stable"
+    advice="a stable release ships on Chrome's current milestone: bump CHROMIUM_VERSION in engine/patches/build/env.sh (docs/engine-build.md), or set ALLOW_STALE_ENGINE=1 for an emergency release"
+  else
+    [ "$(printf '%s\n%s\n' "$engine" "$stable" | sort -V | tail -1)" = "$engine" ] \
+      || echo "warning: the engine is Chromium $engine and Chrome's Mac Stable is $stable: same milestone, but the later point release usually carries security fixes" >&2
+    return 0
+  fi
+  [ "$strict" = 1 ] || { echo "warning: $problem" >&2; return 0; }
+  die "$problem; $advice"
+}
+chrome_stable="$(curl -fsL --max-time 20 'https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Mac&num=1' \
+  | plutil -extract 0.version raw - 2>/dev/null || true)"
+engine_strict=1
+[ "$channel" = stable ] && [ "$rc" = 0 ] && [ "${ALLOW_STALE_ENGINE:-0}" != 1 ] || engine_strict=0
+engine_gate "$(sed -n 's/^export CHROMIUM_VERSION=//p' "$root/engine/patches/build/env.sh")" "$chrome_stable" "$engine_strict"
+
 [ -d "$framework_src" ] || die "no ArdiaCore framework at $framework_src (engine/ardiacore/apply.sh, then build chrome_framework)"
 [ "$phase" = sign ] || [[ " $(lipo -archs "$framework_src/Versions/Current/Chromium Framework" 2>/dev/null) " == *" arm64 "* ]] \
   || die "the ArdiaCore framework at $framework_src has no arm64 slice"

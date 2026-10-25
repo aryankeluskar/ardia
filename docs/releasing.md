@@ -91,6 +91,22 @@ The feed this builds on is checked too. `release.sh` and `appcast-merge.sh` refu
 doesn't verify, so a tampered feed is never carried forward and signed again; an unsigned one is accepted only until
 a tagged release includes `SURequireSignedFeed`. `verify-feed.sh` needs no key, only `SUPublicEDKey`.
 
+## Keeping up with Chrome
+
+Chrome's Mac Stable gets security fixes every week or two and a new milestone every four weeks; the engine
+follows through Helium (`CHROMIUM_VERSION` and `HELIUM_TAG` in `engine/patches/build/env.sh`, `docs/engine-build.md`).
+Two checks compare `CHROMIUM_VERSION` with Chrome's current Mac Stable from Chromium Dash
+(`https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Mac&num=1`):
+
+- `release.sh` refuses a stable release whose engine is on an older milestone, and one it can't check because
+  Chromium Dash didn't answer. A nightly or `--rc` build only warns, and so does a later point release of the same
+  milestone. `ALLOW_STALE_ENGINE=1` lets a stable release through anyway, for an emergency fix the owner has
+  approved.
+- `.github/workflows/chrome-releases.yml` runs daily (and by hand from the Actions tab). When the engine is behind,
+  it opens one issue titled "Engine behind Chrome Stable: Chrome <version> (engine on <version>)", retitles it as
+  Chrome moves on, and closes it once `env.sh` on `main` catches up. It uses only `GITHUB_TOKEN` with
+  `issues: write`.
+
 ## Source and licenses
 
 Every binary we publish (DMG, zip, engine archive) has its source next to it, and keeps it for as long as the binary
@@ -165,8 +181,8 @@ stays up. That's GPL-3.0 §6(d) for the GPL parts (uBlock Origin today), and it'
    `pnpm-lock.yaml`, `pnpm-workspace.yaml` or `patches`, has uncommitted changes, or if the engine
    framework is older than the tree's ArdiaCore sources or the Chromium tree differs from `engine/ardiacore`
    (`apply.sh --check`), if the version doesn't fit the channel or the notes' `channel`, if it can't read the published
-   appcast or its signature doesn't verify, or if the build number isn't above every build in it. It writes
-   `dist/<version>/`:
+   appcast or its signature doesn't verify, if the build number isn't above every build in it, or, for a stable
+   release, if the engine is behind Chrome ("Keeping up with Chrome" below). It writes `dist/<version>/`:
    - installs exactly what's locked: `pnpm install --frozen-lockfile` and `pod install --deployment`, and stops if
      either would change `pnpm-lock.yaml`, `Podfile.lock` or the Xcode project; it rebuilds uBlock Origin from its
      pinned zip (`ubo.sh`, which checks the zip's SHA-256 on every run) and stages the engine into a fresh folder

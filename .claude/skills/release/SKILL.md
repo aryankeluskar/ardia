@@ -159,7 +159,9 @@ git add packages/ardiacore/prebuilt-engines.tsv && git commit -m "Prebuilt engin
 `CURRENT_PROJECT_VERSION` is the build number Sparkle compares — it must go up every release, nightlies included
 (release.sh refuses one that isn't above every build in the published feed; read the current value with `grep CURRENT_PROJECT_VERSION …project.pbxproj | sort -u`). release.sh refuses to run
 if `MARKETING_VERSION` doesn't match, the notes file is missing, the tree has uncommitted app or engine
-changes, or the engine framework is stale (`docs/releasing.md` lists what it checks). It notarizes the app and the DMG with the
+changes, or the engine framework is stale (`docs/releasing.md` lists what it checks). A stable release also stops
+when the engine's Chromium milestone is behind Chrome's Mac Stable: tell the owner and bump the engine; set
+`ALLOW_STALE_ENGINE=1` only when the owner approves shipping that fix on the old engine. It notarizes the app and the DMG with the
 `ardia` notarytool profile (an App Store Connect API key in the login keychain, set up 2026-09-26) and
 ends with "Notarized and stapled." If it says "NOT notarized.", the profile is gone or invalid
 (`xcrun notarytool history --keychain-profile ardia` shows why): stop and tell the user rather than
