@@ -1,5 +1,5 @@
 import { cancelDownload, endWebKitPrivateSession, leftDownloadStaging, removeLeftDownloadStaging, type Download } from "@ardia/ardiacore";
-import { readDocument, writeDocument } from "@ardia/shell";
+import { readDocument, sealSecuritySettings, securitySettingsSealed, writeDocument } from "@ardia/shell";
 import { useBrowser, type BrowserState, type HydrateData } from "../store/browser";
 import { inPinnedContainer, isIncognitoProfile, newId, privateSession, snapshotTab } from "../store/model";
 import { earlyLaunchTabOn, launchTab, linkProfile, type LaunchTab } from "../store/launchTab";
@@ -96,6 +96,17 @@ function write(name: string, json: string) {
 
 const byId = <T extends { id: string }>(list: T[] | undefined) => Object.fromEntries((list ?? []).map((x) => [x.id, x]));
 
+const securityValues = (s: HydrateData["settings"]) =>
+  `cliControl=${!!s?.cliControl};allowJavaScriptFromAppleEvents=${!!s?.allowJavaScriptFromAppleEvents}`;
+
+function approvedSettings(settings: HydrateData["settings"]): HydrateData["settings"] {
+  if (!settings?.cliControl && !settings?.allowJavaScriptFromAppleEvents) return settings;
+  if (securitySettingsSealed(securityValues(settings))) return settings;
+  const off = { ...settings, cliControl: false, allowJavaScriptFromAppleEvents: false };
+  sealSecuritySettings(securityValues(off));
+  return off;
+}
+
 type SessionV2 = {
   version: 2;
   profiles: HydrateData["profiles"];
@@ -141,7 +152,7 @@ export function loadSession(): HydrateData | null {
     profiles: session.profiles,
     profileOrder: session.profileOrder,
     orphanedProfileData: session.orphanedProfileData ?? [],
-    settings: session.settings,
+    settings: approvedSettings(session.settings),
     windows: byId(session.windows),
     windowOrder: session.windowOrder,
     focusedWindowId: session.focusedWindowId,
@@ -241,6 +252,7 @@ export function startPersistence() {
     if (dirty.size && !timer) timer = setTimeout(save, SAVE_DELAY_MS);
   };
   check(useBrowser.getState(), true);
+  let sealed = securityValues(useBrowser.getState().settings);
   if (droppedPrivateDownloads) {
     droppedPrivateDownloads = false;
     dirty.add(DOCS.find((d) => d.name === "downloads.json")!);
@@ -256,6 +268,10 @@ export function startPersistence() {
   const stopProfileData = startProfileDataCleanup();
   const stopSession = useBrowser.subscribe((s, prev) => {
     check(s);
+    if (s.settings !== prev.settings && securityValues(s.settings) !== sealed) {
+      sealed = securityValues(s.settings);
+      sealSecuritySettings(sealed);
+    }
     if (s.windows !== prev.windows) forgetClosedIncognito(s, prev);
   });
   return () => {

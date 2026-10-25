@@ -8,6 +8,7 @@ import {
   writeUserScriptsStatus,
   type UserScriptsFolder,
 } from "@ardia/shell";
+import { create } from "zustand";
 import { useBrowser, type BrowserState } from "../store/browser";
 import { engineProfile, isIncognitoProfile } from "../store/model";
 
@@ -15,6 +16,8 @@ export type ScriptsOutcome = { ok: true } | { disabled: true } | { removed: true
 type Status = { generation: number; profiles: Record<string, ScriptsOutcome> };
 
 const enabled = () => useBrowser.getState().settings.cliControl ?? false;
+
+export const useUserScripts = create<{ active: boolean }>(() => ({ active: false }));
 
 export function scriptsTargets(s: Pick<BrowserState, "profileOrder" | "profiles">): Map<string, string[]> {
   const targets = new Map<string, string[]>();
@@ -79,6 +82,25 @@ let seeded = false;
 let lastStatus: string | null = null;
 let running: Promise<void> | null = null;
 let again = false;
+let reported = false;
+let probes = 0;
+
+const folderPath = (folder: UserScriptsFolder) => ("path" in folder ? folder.path : undefined);
+
+async function loadedAnywhere(path: string) {
+  for (const engine of scriptsTargets(useBrowser.getState()).keys()) {
+    const list = await listExtensions(engine).catch((): InstalledExtension[] => []);
+    if (list.some((x) => x.enabled && loadedFrom(x, path))) return true;
+  }
+  return false;
+}
+
+async function probe() {
+  const mine = ++probes;
+  const path = folderPath(await readUserScripts());
+  const active = !!path && (await loadedAnywhere(path));
+  if (mine === probes && (!enabled() || !reported)) useUserScripts.setState({ active });
+}
 
 async function seed() {
   if (seeded) return;
@@ -129,6 +151,8 @@ async function reconcile() {
     if (!("error" in outcome)) applied.set(engine, { generation, wanted, outcome });
     if (!enabled()) return;
   }
+  reported = true;
+  useUserScripts.setState({ active: [...outcomes.values()].some((o) => "ok" in o) });
   if (again || !enabled()) return;
   const status: Status = { generation, profiles: {} };
   for (const [engine, names] of targets) for (const name of names) status.profiles[name] = outcomes.get(engine)!;
@@ -156,6 +180,28 @@ function schedule() {
   })();
 }
 
+export async function stopUserScripts() {
+  await running;
+  const folder = await readUserScripts();
+  const path = folderPath(folder);
+  if (path) {
+    seeded = true;
+    const generation = folder.generation ?? 0;
+    const status: Status = { generation, profiles: {} };
+    for (const [engine, names] of scriptsTargets(useBrowser.getState())) {
+      const outcome = await unload(engine, path);
+      if (!("error" in outcome)) applied.set(engine, { generation, wanted: "absent", outcome });
+      for (const name of names) status.profiles[name] = outcome;
+    }
+    const json = JSON.stringify(status, null, 2);
+    if (json !== lastStatus) {
+      await writeUserScriptsStatus(json);
+      lastStatus = json;
+    }
+  }
+  await probe();
+}
+
 let started = false;
 
 export function startUserScripts() {
@@ -168,12 +214,15 @@ export function startUserScripts() {
     const on = s.settings.cliControl ?? false;
     const nextKey = on ? targetsKey(scriptsTargets(s)) : "";
     if (on === watching && nextKey === key) return;
+    const turnedOff = watching && !on;
     watching = on;
     key = nextKey;
     watchUserScripts(on);
     if (on) schedule();
+    if (turnedOff) void probe();
   };
   sync(useBrowser.getState());
+  void probe();
   useBrowser.subscribe((s, prev) => {
     if (s.settings.cliControl !== prev.settings.cliControl || s.profileOrder !== prev.profileOrder || s.profiles !== prev.profiles) sync(s);
   });

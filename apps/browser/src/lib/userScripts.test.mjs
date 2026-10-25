@@ -230,3 +230,26 @@ test("turning the setting off stops watching and ignores changes", async () => {
   assert.equal(calls.length, 0);
   assert.equal(fake.writes.length, writes);
 });
+
+test("loaded scripts keep the bar up after control goes off, and Stop unloads them everywhere", async () => {
+  assert.equal(scripts.useUserScripts.getState().active, false);
+  useBrowser.getState().updateSettings({ cliControl: true });
+  await settle();
+  assert.equal(scripts.useUserScripts.getState().active, true);
+  useBrowser.getState().updateSettings({ cliControl: false });
+  await settle();
+  assert.equal(scripts.useUserScripts.getState().active, true);
+  calls.length = 0;
+  await scripts.stopUserScripts();
+  assert.deepEqual(calls.filter(([k]) => k === "uninstall").map(([, p]) => p).sort(), ["", "work"]);
+  assert.equal(scripts.useUserScripts.getState().active, false);
+  assert.deepEqual(lastWrite(), { generation: 9, profiles: { Personal: { removed: true }, "Personal (2)": { removed: true }, Side: { removed: true } } });
+});
+
+test("after Stop, turning control back on loads the scripts again", async () => {
+  calls.length = 0;
+  useBrowser.getState().updateSettings({ cliControl: true });
+  await settle();
+  assert.deepEqual(calls.filter(([k]) => k === "install").map(([, p]) => p).sort(), ["", "work"]);
+  assert.equal(scripts.useUserScripts.getState().active, true);
+});

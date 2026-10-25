@@ -45,6 +45,10 @@ public class KeychainModule: Module {
       let status = SecItemDelete(Self.query(account) as CFDictionary)
       return status == errSecSuccess || status == errSecItemNotFound
     }
+
+    Function("sealSecuritySettings") { (values: String) -> Bool in SecuritySettingsSeal.seal(values) }
+
+    Function("securitySettingsSealed") { (values: String) -> Bool in SecuritySettingsSeal.matches(values) }
   }
 
   private static func query(_ account: String) -> [String: Any] {
@@ -52,9 +56,57 @@ public class KeychainModule: Module {
   }
 }
 
+private enum SecuritySettingsSeal {
+  private static let service = "Ardia Security Settings"
+  private static let account = "approved"
+
+  private static var query: [String: Any] {
+    [
+      kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account,
+      kSecUseDataProtectionKeychain as String: true,
+    ]
+  }
+
+  static func seal(_ values: String) -> Bool {
+    if let store = IsolatedSecrets.securitySettings { return store.set(account, values) }
+    let data = Data(values.utf8)
+    var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+    if status == errSecItemNotFound {
+      var add = query
+      add[kSecValueData as String] = data
+      add[kSecAttrLabel as String] = service
+      add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+      status = SecItemAdd(add as CFDictionary, nil)
+    }
+    if status != errSecSuccess { NSLog("[settings] couldn't record the security settings in the Keychain: \(status)") }
+    return status == errSecSuccess
+  }
+
+  static func matches(_ values: String) -> Bool {
+    let approved: String?
+    if let store = IsolatedSecrets.securitySettings {
+      approved = store.get(account)
+    } else {
+      var lookup = query
+      lookup[kSecReturnData as String] = true
+      lookup[kSecMatchLimit as String] = kSecMatchLimitOne
+      var item: CFTypeRef?
+      let status = SecItemCopyMatching(lookup as CFDictionary, &item)
+      approved = status == errSecSuccess ? (item as? Data).flatMap { String(data: $0, encoding: .utf8) } : nil
+    }
+    if approved == values { return true }
+    NSLog("[settings] session.json has security settings Ardia didn't set (\(values)); turning them off")
+    return false
+  }
+}
+
 private final class IsolatedSecrets {
   static let shared = ACIsolatedDataDirectory().map {
     IsolatedSecrets(URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("Connected Accounts.json"))
+  }
+
+  static let securitySettings = ACIsolatedDataDirectory().map {
+    IsolatedSecrets(URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("Security Settings.json"))
   }
 
   private let url: URL
