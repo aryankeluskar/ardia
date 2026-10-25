@@ -4,6 +4,7 @@ import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View, type G
 import { hex, useTheme } from "../../lib/theme";
 import { Switch, switchEasing } from "../Switch";
 import { useHover } from "../primitives";
+import { useWindowId } from "../../store/hooks";
 import type { ToolbarPalette } from "./toolbarColors";
 
 export type ClickModifiers = { metaKey: boolean; altKey: boolean; shiftKey: boolean };
@@ -292,6 +293,7 @@ const INPUT_GUARD_MS = 500;
 
 function useInputGuard(content: unknown): (() => void) | null {
   const guarding = content !== undefined;
+  const windowId = useWindowId();
   const [guarded, setGuarded] = useState(guarding);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const arm = useRef(() => {
@@ -304,9 +306,11 @@ function useInputGuard(content: unknown): (() => void) | null {
   }, [content]);
   useEffect(() => {
     if (!guarding) return;
-    const focus = onWindowEvent((e) => e.type === "focus" && arm());
+    const rearm = onWindowEvent(
+      (e) => (e.type === "focus" || (e.type === "occlusion" && e.visible && e.id === windowId)) && arm(),
+    );
     return () => {
-      focus.remove();
+      rearm.remove();
       clearTimeout(timer.current);
     };
   }, [guarding]);
