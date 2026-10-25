@@ -110,8 +110,9 @@ GROUP BY day, version ORDER BY day DESC, version
 ## Telemetry (since 2026-09-30)
 
 Site analytics, session replays, the app's opt-in telemetry and the update-check count are first-party:
-they go to ardia.dev and are stored on our own servers (Hexclave, same project as the site). No third
-party sees them, and the site loads no third-party script.
+they go to ardia.dev and are stored on our own servers (Hexclave, same project as the site), and the site
+loads no third-party script. The one third party that can read them is Composio, through hekuto's ClickHouse
+connection (see **Reading it**).
 
 ```
 browser / app ──POST──▶ ardia.dev/otel/v1/logs ──▶ otel-collector ──▶ ph-clickhouse  (telemetry.otel_logs)
@@ -123,11 +124,14 @@ owner's Mac ──▶ ardia.dev/_ch/ (read-only ClickHouse user)   ardia.dev/_re
 - **Where it runs:** `infra/telemetry/hexclave.deploy.ts` (ClickHouse, OpenTelemetry Collector, SeaweedFS; all
   private, images pinned by digest) and the routes in `infra/site/nginx.conf`. Only nginx is public. It limits
   bodies (512 KB events, 2 MB replay chunks) and rates per visitor address (Fly's `Fly-Client-IP`, or the
-  connection's address when that's missing): 20/s events and 5/s replays in bursts, and a slow bucket standing in
-  for a daily quota (3,000 event posts, then 10 a minute; 2,000 replay chunks, then 4 a minute). nginx counts
-  requests, not bytes. It only accepts OTLP logs (no traces or metrics). Replay chunks are POST-only and
-  write-once: before each write nginx asks SeaweedFS whether the chunk exists (a HEAD with a far-future
-  `If-Modified-Since`, answered 304 when it does) and refuses an existing one with 403. Every response carries
+  connection's address when that's missing or invalid): 20/s events and 5/s replays in bursts, and a rolling
+  budget, not a calendar-day cap (3,000 event posts that refill at 10 a minute; 2,000 replay chunks that refill
+  at 4 a minute). nginx counts requests, not bytes. It only accepts OTLP logs (no traces or metrics). Replay
+  chunks are POST-only, and nginx refuses to overwrite one: before each write it asks SeaweedFS whether the chunk
+  exists (a HEAD with a far-future `If-Modified-Since`, answered 304 when it does) and answers 403 if so, and it
+  lets only one write per chunk run at a time (409 for a second). The check and the write are separate
+  requests, and each of the two site instances keeps its own count, so two writes to the same chunk that reach
+  both instances at the same moment can both land. The pinned filer has no atomic create over HTTP. Every response carries
   HSTS, `nosniff`, `Referrer-Policy` and a CSP that enforces `frame-ancestors 'self'`, `object-src 'none'` and
   `base-uri 'self'`; the full policy is report-only until the site's inline scripts get hashes. Plain HTTP gets a
   301 to HTTPS (from Fly's `X-Forwarded-Proto`).
@@ -167,8 +171,9 @@ owner's Mac ──▶ ardia.dev/_ch/ (read-only ClickHouse user)   ardia.dev/_re
   user, `hekuto`: password in the `TELEMETRY_CLICKHOUSE_HEKUTO_PASSWORD` secret, `SELECT` on `telemetry.*` only,
   `reader`'s limits, and its own quota (per hour 300 queries, 15 min of query time, 5M result rows, 10B rows
   read; per day 2,000 queries, 1 h, 20M, 50B). Composio holds that password, so it's the one third party that
-  can read the tables. `/_ch/` takes `reader` or `hekuto` and refuses an empty password (ClickHouse treats an
-  empty or unset password variable as no password). Rotating `reader` is now only the owner's: change
+  can read the tables. ClickHouse treats an empty or unset password variable as no password, so
+  `clickhouse/start.sh` locks `otel`, `reader` or `hekuto` with a random password (and logs a line saying so) when its
+  variable is empty, and `/_ch/` takes only `reader` or `hekuto` and refuses an empty password. Rotating `reader` is now only the owner's: change
   `TELEMETRY_CLICKHOUSE_READER_PASSWORD`, redeploy the `posthog` and `dashboard` groups, and update
   `telemetry.env` and the backup.
 - **Checks of the pipeline:** send with service `ardia-selftest` (or version `0.0.0-selftest`); the views
