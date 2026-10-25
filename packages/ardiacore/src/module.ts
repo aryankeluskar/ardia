@@ -126,6 +126,7 @@ export const cancelDownload = (id: string) => Cef.cancelDownload(id);
 export const pauseDownload = (id: string) => Cef.pauseDownload(id);
 export const resumeDownload = (id: string) => Cef.resumeDownload(id);
 export const keepDownload = (id: string) => Cef.keepDownload(id);
+export const discardDownload = (id: string) => Cef.discardDownload(id);
 
 export type DownloadSettings = { folder: string; askWhereToSave: boolean; managed: boolean };
 export const getDownloadSettings = (profile = "") => engineCall<DownloadSettings>("ac_downloads_settings", profile);

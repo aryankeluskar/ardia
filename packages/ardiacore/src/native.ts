@@ -62,6 +62,7 @@ export const Cef = requireNativeModule<{
   pauseDownload(id: string): Promise<void>;
   resumeDownload(id: string): Promise<void>;
   keepDownload(id: string): Promise<void>;
+  discardDownload(id: string): Promise<void>;
   resolvePermission(id: string, result: PermissionResult, remember?: boolean): Promise<void>;
   resolveExternalApp(id: string, open: boolean, remember: boolean): Promise<void>;
   getExternalAppAllowances(profile: string): Promise<ExternalAppAllowance[]>;
