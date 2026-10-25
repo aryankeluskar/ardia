@@ -14,7 +14,13 @@ case "$source" in
   http://* | https://*) curl -fsSL --max-time 30 --retry 2 "$source" -o "$live" ;;
   *) cp "$source" "$live" ;;
 esac
-"$here/verify-feed.sh" "$live" || { echo "error: the published feed ($source) isn't signed with the Sparkle key; not merging onto it" >&2; exit 1; }
+if ! "$here/verify-feed.sh" --signed "$live"; then
+  if ! [ "${ALLOW_UNSIGNED_FEED:-0}" = 1 ]; then
+    echo "error: the published feed ($source) isn't signed with the Sparkle key; not merging onto it (the first release that signs the feed may set ALLOW_UNSIGNED_FEED=1)" >&2
+    exit 1
+  fi
+  "$here/verify-feed.sh" "$live"
+fi
 [ -f "$dist/appcast.built.xml" ] || cp "$built" "$dist/appcast.built.xml"
 python3 -I - "$live" "$dist/appcast.built.xml" "$version" "$built" <<'PY'
 import re, sys
