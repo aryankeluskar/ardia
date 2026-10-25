@@ -320,6 +320,8 @@ enum UpdatePrewarm {
   static let timeout: TimeInterval = 90
   private static var started = Set<String>()
   private static var running: pid_t = 0
+  private static var spawned: pid_t = 0
+  private static var stopCount = 0
 
   static func start(version: String) {
     let candidates = stagedCandidates(version: version)
@@ -327,6 +329,7 @@ enum UpdatePrewarm {
     started.insert(version)
     NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in stop() }
     DispatchQueue.global(qos: .utility).async {
+      let seenStops = stopCount
       guard let executable = candidates.first(where: { satisfiesDesignatedRequirement($0.bundleURL) })?.executableURL else {
         return NSLog("Ardia: not prewarming update \(version): no staged copy satisfies this app's designated requirement")
       }
@@ -336,10 +339,17 @@ enum UpdatePrewarm {
       guard let pid = spawnSuspendedDisclaimingResponsibility(executable, environment: env) else {
         return NSLog("Ardia: couldn't prewarm update \(version)")
       }
+      spawned = pid
+      defer { if spawned == pid { spawned = 0 } }
       guard launchedCopySatisfiesDesignatedRequirement(pid) else {
         kill(pid, SIGKILL)
-        waitpid(pid, nil, 0)
+        while waitpid(pid, nil, 0) == -1, errno == EINTR {}
         return NSLog("Ardia: not prewarming update \(version): the launched copy doesn't satisfy this app's designated requirement")
+      }
+      guard seenStops == stopCount else {
+        kill(pid, SIGKILL)
+        while waitpid(pid, nil, 0) == -1, errno == EINTR {}
+        return NSLog("Ardia: not prewarming update \(version): it was stopped before it could run")
       }
       kill(pid, SIGCONT)
       DispatchQueue.main.async {
@@ -361,9 +371,13 @@ enum UpdatePrewarm {
   }
 
   static func stop() {
-    guard running != 0 else { return }
-    kill(running, SIGKILL)
+    stopCount += 1
+    for pid in Set([running, spawned].filter { $0 != 0 }) {
+      kill(pid, SIGKILL)
+      while waitpid(pid, nil, 0) == -1, errno == EINTR {}
+    }
     running = 0
+    spawned = 0
   }
 
   static func stagedCandidates(version: String, bundleId: String? = Bundle.main.bundleIdentifier, root: URL? = nil) -> [Bundle] {
