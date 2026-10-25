@@ -57,20 +57,10 @@ if [ "$phase" = build ] || [ "$phase" = check ]; then
   :
 elif [ -n "$sparkle_key_file" ]; then
   [ -s "$sparkle_key_file" ] || { echo "error: SPARKLE_KEY_FILE ($sparkle_key_file) is missing or empty" >&2; exit 1; }
-elif [ -n "${SPARKLE_ACCOUNT:-}" ]; then
-  sparkle_account="$SPARKLE_ACCOUNT"
 else
-  legacy_account="$(sed -n 's/^ *public static let appName = "\(.*\)"$/\1/p' "$root/packages/sync/ios/Core/LegacyMigration.swift" | tr '[:upper:]' '[:lower:]')"
-  sparkle_account=ardia
-  for account in ardia $legacy_account; do
-    if "$sparkle/generate_keys" --account "$account" -p >/dev/null 2>&1; then sparkle_account="$account"; break; fi
-  done
+  sparkle_account="$("$root/scripts/lib/sparkle-account.sh")"
 fi
-[ "$phase" = build ] || [ "$phase" = check ] || [ -n "$sparkle_key_file" ] \
-  || "$sparkle/generate_keys" --account "$sparkle_account" -p >/dev/null 2>&1 || {
-  echo "error: no Sparkle EdDSA key in the login keychain under account $sparkle_account (SPARKLE_ACCOUNT; docs/releasing.md)" >&2
-  exit 1
-}
+verify_feed="$root/.claude/skills/release/scripts/verify-feed.sh"
 die() { echo "error: $*" >&2; exit 1; }
 if [ "$rc" = 1 ]; then dist="$root/dist/$version-rc"; else dist="$root/dist/$version"; fi
 [ "$rc" = 1 ] && [ -n "${RC_DIST:-}" ] && dist="$(cd "$root" && mkdir -p "$RC_DIST" && cd "$RC_DIST" && pwd)"
@@ -152,9 +142,9 @@ else
   die "no release notes: write docs/release-notes/$version.md first"
 fi
 
-dirty="$(git -C "$root" status --porcelain -- apps/browser apps/cli packages engine scripts/dmg | grep -v ' apps/browser/build' || true)"
+dirty="$(git -C "$root" status --porcelain -- apps/browser apps/cli packages engine scripts/dmg package.json pnpm-lock.yaml pnpm-workspace.yaml patches | grep -v ' apps/browser/build' || true)"
 if [ -n "$dirty" ]; then
-  [ "$rc" = 1 ] || { echo "$dirty" >&2; die "uncommitted changes under apps/browser, apps/cli, packages, engine or scripts/dmg (above)"; }
+  [ "$rc" = 1 ] || { echo "$dirty" >&2; die "uncommitted changes under apps/browser, apps/cli, packages, engine, scripts/dmg or the workspace's package files (above)"; }
   echo "warning: the candidate includes uncommitted changes:" >&2
   echo "$dirty" >&2
 fi
@@ -200,6 +190,8 @@ esac
 if [ ! -s "$base_feed" ] && [ "$rc" = 0 ] && [ "$feed_base" != none ]; then
   die "couldn't read the published appcast ($feed_base): every release builds on it, or earlier versions and the other channel drop out of the feed"
 fi
+[ ! -s "$base_feed" ] || "$verify_feed" "$base_feed" \
+  || die "the published appcast ($feed_base) isn't signed with the Sparkle key: this release would carry its items forward and sign them"
 newest_listed="$(grep -o '<sparkle:version>[0-9]*<' "$base_feed" | tr -dc '0-9\n' | sort -n | tail -1 || true)"
 [ -z "$newest_listed" ] || [ "$release_build" -gt "$newest_listed" ] \
   || die "the build number ($release_build) must be above every build in the feed, nightly or stable (newest: $newest_listed): bump CURRENT_PROJECT_VERSION"
@@ -221,7 +213,7 @@ if [ "$phase" != sign ]; then
   } > "$dist/provenance.txt"
 
   echo "==> Content blocker"
-  "$ardiacore/scripts/ubo.sh"
+  UBO_REINSTALL=1 "$ardiacore/scripts/ubo.sh"
   [ -f "$ardiacore/vendor/ubo/ext/manifest.json" ] || die "uBlock Origin isn't installed ($ardiacore/scripts/ubo.sh)"
 
   if [ -n "$provisioning_profile" ] || [ "$phase" = build ]; then
@@ -335,6 +327,9 @@ info() { plutil -extract "$1" raw "$app/Contents/Info.plist" 2>/dev/null; }
 for key in SUFeedURL SUPublicEDKey NSDockTilePlugIn NSCameraUsageDescription NSMicrophoneUsageDescription \
   NSBluetoothAlwaysUsageDescription NSLocationUsageDescription NSLocalNetworkUsageDescription; do
   [ -n "$(info "$key")" ] || die "Info.plist has no $key"
+done
+for key in SURequireSignedFeed SUVerifyUpdateBeforeExtraction; do
+  [ "$(info "$key")" = true ] || die "Info.plist doesn't set $key to true"
 done
 [ -d "$app/Contents/Frameworks/Sparkle.framework" ] || die "no Sparkle.framework"
 [ -d "$app/Contents/PlugIns/ArdiaDockTile.plugin" ] || die "no dock tile plug-in"
@@ -493,6 +488,8 @@ phased_args=()
   --download-url-prefix "https://github.com/$repo/releases/download/v$version/" \
   --embed-release-notes --full-release-notes-url "$notes_page" \
   --link "https://github.com/$repo" -o "$updates/appcast.xml" "$updates"
+"$verify_feed" --signed "$updates/appcast.xml" "$(info SUPublicEDKey)" \
+  || die "generate_appcast didn't sign the appcast with the app's SUPublicEDKey (SURequireSignedFeed in its Info.plist)"
 mv "$updates/appcast.xml" "$dist/appcast.xml"
 grep -q "<sparkle:shortVersionString>$version<" "$dist/appcast.xml" || die "appcast.xml has no item for $version"
 rm -rf "$updates"
