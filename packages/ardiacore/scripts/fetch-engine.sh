@@ -26,13 +26,16 @@ lookup() {
   local line
   [ -n "$1" ] || return 0
   line=$(awk -v t="$1" '$1 == t { print; exit }' "$table" 2>/dev/null || true)
-  if [ -z "$line" ]; then
+  if [ -z "$line" ] && [ "${ARDIACORE_PREBUILT_ALLOW_REMOTE_TABLE:-0}" = 1 ]; then
     [ -n "$remote_table" ] || remote_table=$(curl -fsL --retry 2 "https://raw.githubusercontent.com/$repo/main/packages/ardiacore/prebuilt-engines.tsv" || echo "#")
     line=$(awk -v t="$1" '$1 == t { print; exit }' <<<"$remote_table")
   fi
   echo "$line"
 }
 
+remote_hint=""
+[ "${ARDIACORE_PREBUILT_ALLOW_REMOTE_TABLE:-0}" = 1 ] \
+  || remote_hint=" (prebuilt-engines.tsv on main may list it: git pull, or ARDIACORE_PREBUILT_ALLOW_REMOTE_TABLE=1 trusts main's table over HTTPS)"
 entry=$(lookup "$tree")
 if [ -z "$entry" ]; then
   skipped=0 found=""
@@ -42,11 +45,11 @@ if [ -z "$entry" ]; then
     skipped=$((skipped + 1))
     [ "$skipped" -lt 200 ] || break
   done < <(git -C "$root" rev-list HEAD -- engine)
-  [ -n "$found" ] || die "no prebuilt engine for this checkout or any earlier one: build the engine (docs/engine-build.md)"
+  [ -n "$found" ] || die "no prebuilt engine for this checkout or any earlier one: build the engine (docs/engine-build.md)$remote_hint"
   version=$(awk '{ print $2 }' <<<"$found")
   if [ "$nearest" = 0 ]; then
     die "no prebuilt engine for this checkout's engine/ ($skipped engine commits since $version's). Check out v$version, \
-or run packages/ardiacore/scripts/fetch-engine.sh --nearest to build against $version's engine anyway, or build the engine"
+or run packages/ardiacore/scripts/fetch-engine.sh --nearest to build against $version's engine anyway, or build the engine$remote_hint"
   fi
   echo "warning: using $version's engine; engine/ changed in $skipped commits since, and the app may not match it" >&2
   entry=$found

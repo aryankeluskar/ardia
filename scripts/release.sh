@@ -46,19 +46,8 @@ else
   notary_auth=(--keychain-profile "$notary_profile")
 fi
 sparkle="$macos/Pods/Sparkle/bin"
-if [ -n "${SPARKLE_ACCOUNT:-}" ]; then
-  sparkle_account="$SPARKLE_ACCOUNT"
-else
-  legacy_account="$(sed -n 's/^ *public static let appName = "\(.*\)"$/\1/p' "$root/packages/sync/ios/Core/LegacyMigration.swift" | tr '[:upper:]' '[:lower:]')"
-  sparkle_account=ardia
-  for account in ardia $legacy_account; do
-    if "$sparkle/generate_keys" --account "$account" -p >/dev/null 2>&1; then sparkle_account="$account"; break; fi
-  done
-fi
-"$sparkle/generate_keys" --account "$sparkle_account" -p >/dev/null 2>&1 || {
-  echo "error: no Sparkle EdDSA key in the login keychain under account $sparkle_account (SPARKLE_ACCOUNT; docs/releasing.md)" >&2
-  exit 1
-}
+verify_feed="$root/.claude/skills/release/scripts/verify-feed.sh"
+sparkle_account="$("$root/scripts/lib/sparkle-account.sh")"
 if [ "$rc" = 1 ]; then dist="$root/dist/$version-rc"; else dist="$root/dist/$version"; fi
 [ "$rc" = 1 ] && [ -n "${RC_DIST:-}" ] && dist="$(cd "$root" && mkdir -p "$RC_DIST" && cd "$RC_DIST" && pwd)"
 build="${RELEASE_BUILD_DIR:-$app_dir/build-release}"
@@ -101,9 +90,9 @@ else
   die "no release notes: write docs/release-notes/$version.md first"
 fi
 
-dirty="$(git -C "$root" status --porcelain -- apps/browser apps/cli packages engine scripts/dmg | grep -v ' apps/browser/build' || true)"
+dirty="$(git -C "$root" status --porcelain -- apps/browser apps/cli packages engine scripts/dmg package.json pnpm-lock.yaml pnpm-workspace.yaml patches | grep -v ' apps/browser/build' || true)"
 if [ -n "$dirty" ]; then
-  [ "$rc" = 1 ] || { echo "$dirty" >&2; die "uncommitted changes under apps/browser, apps/cli, packages, engine or scripts/dmg (above)"; }
+  [ "$rc" = 1 ] || { echo "$dirty" >&2; die "uncommitted changes under apps/browser, apps/cli, packages, engine, scripts/dmg or the workspace's package files (above)"; }
   echo "warning: the candidate includes uncommitted changes:" >&2
   echo "$dirty" >&2
 fi
@@ -153,6 +142,8 @@ esac
 if [ ! -s "$base_feed" ] && [ "$rc" = 0 ] && [ "$feed_base" != none ]; then
   die "couldn't read the published appcast ($feed_base): every release builds on it, or earlier versions and the other channel drop out of the feed"
 fi
+[ ! -s "$base_feed" ] || "$verify_feed" "$base_feed" \
+  || die "the published appcast ($feed_base) isn't signed with the Sparkle key: this release would carry its items forward and sign them"
 newest_listed="$(grep -o '<sparkle:version>[0-9]*<' "$base_feed" | tr -dc '0-9\n' | sort -n | tail -1 || true)"
 [ -z "$newest_listed" ] || [ "$release_build" -gt "$newest_listed" ] \
   || die "the build number ($release_build) must be above every build in the feed, nightly or stable (newest: $newest_listed): bump CURRENT_PROJECT_VERSION"
@@ -166,14 +157,26 @@ mkdir -p "$dist"
   echo "framework built $(stat -f '%Sm' "$framework_src/Versions/Current/Chromium Framework")"
 } > "$dist/provenance.txt"
 
+echo "==> Dependencies (as locked)"
+locked_files=(pnpm-lock.yaml apps/browser/macos/Podfile.lock apps/browser/macos/Ardia.xcodeproj)
+locked_before="$(git -C "$root" diff HEAD -- "${locked_files[@]}" | shasum)"
+(cd "$root" && "$root/scripts/agent/locked" pod --wait 1800 -- pnpm install --frozen-lockfile) >"$dist/install.log" 2>&1 \
+  || { tail -20 "$dist/install.log" >&2; die "pnpm install --frozen-lockfile failed ($dist/install.log): pnpm-lock.yaml doesn't match the package.json files"; }
+(cd "$macos" && "$root/scripts/agent/locked" pod --wait 1800 -- pod install --deployment) >>"$dist/install.log" 2>&1 \
+  || { tail -20 "$dist/install.log" >&2; die "pod install --deployment failed ($dist/install.log): Podfile.lock doesn't match the Podfile"; }
+[ "$(git -C "$root" diff HEAD -- "${locked_files[@]}" | shasum)" = "$locked_before" ] \
+  || die "installing changed $(git -C "$root" diff --name-only HEAD -- "${locked_files[@]}" | tr '\n' ' '): commit what pnpm install and pod install write"
+
 echo "==> Content blocker"
-"$ardiacore/scripts/ubo.sh"
+UBO_REINSTALL=1 "$ardiacore/scripts/ubo.sh"
 [ -f "$ardiacore/vendor/ubo/ext/manifest.json" ] || die "uBlock Origin isn't installed ($ardiacore/scripts/ubo.sh)"
 
 echo "==> Archive"
+rm -rf "$build/ArdiaCoreFramework" "$build/ArdiaCoreStaged"
 (cd "$app_dir" && ARDIACORE_FRAMEWORK="$framework_src" "$root/scripts/agent/locked" pod --wait 1800 -- \
   "$root/scripts/agent/locked" xcodebuild --wait 1800 -- xcodebuild -workspace macos/Ardia.xcworkspace -scheme Ardia-macOS \
   -configuration Release -destination 'generic/platform=macOS' ARCHS=arm64 ARDIACORE_STAGE_DIR="$build/ArdiaCoreFramework" \
+  ARDIACORE_STAGE_CACHE="$build/ArdiaCoreStaged" \
   ${version_settings[@]+"${version_settings[@]}"} AC_UPDATE_CHANNEL="$channel" \
   -derivedDataPath "$build" -archivePath "$archive" -allowProvisioningUpdates archive) \
   > "$dist/archive.log" 2>&1 || {
@@ -250,6 +253,9 @@ info() { plutil -extract "$1" raw "$app/Contents/Info.plist" 2>/dev/null; }
 for key in SUFeedURL SUPublicEDKey NSDockTilePlugIn NSCameraUsageDescription NSMicrophoneUsageDescription \
   NSBluetoothAlwaysUsageDescription NSLocationUsageDescription NSLocalNetworkUsageDescription; do
   [ -n "$(info "$key")" ] || die "Info.plist has no $key"
+done
+for key in SURequireSignedFeed SUVerifyUpdateBeforeExtraction; do
+  [ "$(info "$key")" = true ] || die "Info.plist doesn't set $key to true"
 done
 [ -d "$app/Contents/Frameworks/Sparkle.framework" ] || die "no Sparkle.framework"
 [ -d "$app/Contents/PlugIns/ArdiaDockTile.plugin" ] || die "no dock tile plug-in"
@@ -412,16 +418,15 @@ mkdir -p "$updates"
 cp "$zip" "$updates/"
 { printf '**%s**\n\n' "$headline"; notes_body; } > "$updates/Ardia-$version.md"
 [ -s "$base_feed" ] && cp "$base_feed" "$updates/appcast.xml"
-key="$(mktemp -d)/sparkle-key"
-trap 'rm -rf "$(dirname "$key")" "$base_feed"' EXIT
-"$sparkle/generate_keys" --account "$sparkle_account" -x "$key" >/dev/null
 phased_args=()
 [ -n "$phased" ] && phased_args=(--phased-rollout-interval "$phased")
 [ "$channel" = nightly ] && phased_args+=(--channel nightly)
-"$sparkle/generate_appcast" --ed-key-file "$key" ${phased_args[@]+"${phased_args[@]}"} \
+"$sparkle/generate_appcast" --account "$sparkle_account" ${phased_args[@]+"${phased_args[@]}"} \
   --download-url-prefix "https://github.com/$repo/releases/download/v$version/" \
   --embed-release-notes --full-release-notes-url "$notes_page" \
   --link "https://github.com/$repo" "$updates"
+"$verify_feed" --signed "$updates/appcast.xml" "$(info SUPublicEDKey)" \
+  || die "generate_appcast didn't sign the appcast with the app's SUPublicEDKey (SURequireSignedFeed in its Info.plist)"
 mv "$updates/appcast.xml" "$dist/appcast.xml"
 rm -rf "$updates"
 

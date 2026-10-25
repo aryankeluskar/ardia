@@ -62,6 +62,7 @@ for _ in $(seq 1 18); do
 done
 grep -q "<sparkle:shortVersionString>$version<" <<<"$feed" \
   && echo "PASS  the feed lists $version (on $stable_tag's appcast.xml)" || { echo "FAIL  the feed lists $version"; status=1; }
+"$here/verify-feed.sh" --signed "$feed_url" || status=1
 size="$(curl -fsSLI --max-time 30 "$nightly_dmg_url" | awk 'tolower($1) == "content-length:" { n = $2 } END { print n + 0 }')"
 [ "$size" = "$(stat -f %z "$dmg")" ] && echo "PASS  $nightly_dmg_url is $version's DMG" \
   || { echo "FAIL  $nightly_dmg_url is $version's DMG (size $size, expected $(stat -f %z "$dmg"))"; status=1; }

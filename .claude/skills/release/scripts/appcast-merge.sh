@@ -2,7 +2,8 @@
 set -euo pipefail
 
 version="${1:?usage: appcast-merge.sh <version> [published feed URL or file]}"
-root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+here="$(cd "$(dirname "$0")" && pwd)"
+root="$(git -C "$here" rev-parse --show-toplevel)"
 dist="${RELEASE_DIST:-$root/dist/$version}"
 source="${2:-https://github.com/mantrakp04/ardia/releases/latest/download/appcast.xml}"
 built="$dist/appcast.xml"
@@ -13,6 +14,7 @@ case "$source" in
   http://* | https://*) curl -fsSL --max-time 30 --retry 2 "$source" -o "$live" ;;
   *) cp "$source" "$live" ;;
 esac
+"$here/verify-feed.sh" "$live" || { echo "error: the published feed ($source) isn't signed with the Sparkle key; not merging onto it" >&2; exit 1; }
 [ -f "$dist/appcast.built.xml" ] || cp "$built" "$dist/appcast.built.xml"
 python3 -I - "$live" "$dist/appcast.built.xml" "$version" "$built" <<'PY'
 import re, sys
@@ -45,6 +47,7 @@ if not live_items:
     merged += "    </channel>\n</rss>\n"
 else:
     merged += live[live.rindex("</item>") + len("</item>"):].lstrip("\n")
+merged = re.sub(r"<!-- sparkle-signatures:.*?-->\s*", "", merged, flags=re.S)
 open(out_path, "w").write(merged)
 counts = {}
 for i in [item] + kept:
@@ -52,3 +55,5 @@ for i in [item] + kept:
 summary = ", ".join(f"{n} {c}" for c, n in sorted(counts.items()))
 print(f"PASS  appcast for {version} (build {build}, {channel_of(item)}) merged onto the published feed ({summary})")
 PY
+"$root/apps/browser/macos/Pods/Sparkle/bin/sign_update" --account "$("$root/scripts/lib/sparkle-account.sh")" "$built" >/dev/null
+"$here/verify-feed.sh" --signed "$built"

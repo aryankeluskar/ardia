@@ -9,9 +9,28 @@ public final class AppUpdater: NSObject {
 
   static var feedOverride: String? {
     let env = ProcessInfo.processInfo.environment
-    if let feed = env["ARDIA_UPDATE_FEED_URL"] ?? UserDefaults.standard.string(forKey: "ACUpdateFeedURL") { return feed }
+    if feedOverrideAllowed, let feed = env["ARDIA_UPDATE_FEED_URL"] ?? UserDefaults.standard.string(forKey: "ACUpdateFeedURL"),
+      isAllowedFeed(feed) { return feed }
     return env["ARDIA_BACKGROUND"] == "1" ? "https://github.com/mantrakp04/ardia/releases/latest/download/appcast.xml" : nil
   }
+
+  static var feedOverrideAllowed: Bool { ACIsolatedDataDirectory() != nil || !isTeamSigned }
+
+  static func isAllowedFeed(_ feed: String) -> Bool {
+    guard let url = URL(string: feed.trimmingCharacters(in: .whitespaces)), let scheme = url.scheme?.lowercased() else { return false }
+    return scheme == "https" || (scheme == "http" && ["127.0.0.1", "localhost", "::1"].contains(url.host?.lowercased() ?? ""))
+  }
+
+  static let isTeamSigned: Bool = {
+    var code: SecCode?
+    guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return false }
+    var staticCode: SecStaticCode?
+    guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return false }
+    var info: CFDictionary?
+    guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+          let dict = info as? [String: Any] else { return false }
+    return dict[kSecCodeInfoTeamIdentifier as String] != nil
+  }()
 
   public static let channels = ["stable", "nightly"]
   static let channelDefaultsKey = "ACUpdateChannel"
@@ -168,8 +187,7 @@ public final class AppUpdater: NSObject {
     let info = Bundle.main.infoDictionary ?? [:]
     let feed = (Self.feedOverride ?? info["SUFeedURL"] as? String ?? "").trimmingCharacters(in: .whitespaces)
     let key = (info["SUPublicEDKey"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-    guard let scheme = URL(string: feed)?.scheme?.lowercased() else { return false }
-    return (scheme == "https" || scheme == "http") && !key.isEmpty
+    return Self.isAllowedFeed(feed) && !key.isEmpty
   }
 
   public func start() {

@@ -248,6 +248,7 @@ gh release create v<version> -R mantrakp04/ardia --title "Ardia <version>" \
   dist/<version>/ardia-cli-<version>-macos-arm64.tar.gz dist/<version>/ardia-cli-<version>-macos-arm64.tar.gz.sha256 \
   $(ls dist/<version>/ArdiaCore-*.tar.xz 2>/dev/null)
 curl -fsL https://github.com/mantrakp04/ardia/releases/latest/download/appcast.xml | grep -o 'shortVersionString>[0-9.]*' | head -1
+.claude/skills/release/scripts/verify-feed.sh --signed https://github.com/mantrakp04/ardia/releases/latest/download/appcast.xml
 .claude/skills/release/scripts/feed.sh <version>
 ```
 
@@ -266,6 +267,8 @@ fi
 
 `appcast-merge.sh` puts this release's item onto the feed as it's published right now, so nightlies that shipped while
 this release was being tested stay listed (it rewrites `dist/<version>/appcast.xml`, keeping `appcast.built.xml`).
+It refuses a published feed whose Sparkle signature doesn't verify, then signs the merged feed with the Sparkle key
+(`sign_update`, one keychain read) and checks it against `SUPublicEDKey` (`verify-feed.sh`).
 Both must show the new version. Copies from 0.2.13 and earlier poll GitHub's URL directly; 0.2.14 to 0.2.32 poll
 netnyahoo.com/appcast.xml and later ones ardia.dev/appcast.xml, both served by the site, which counts the check
 (version, day, first check or not) and redirects to the same GitHub file. feed.sh reads the URL from the built
@@ -292,11 +295,15 @@ the final RC and said ship).
 3. **Everyone.** Remove the interval from the published appcast, so every copy sees the update:
    ```bash
    gh release download v<version> -R mantrakp04/ardia -p appcast.xml -D /tmp/ac-appcast --clobber
+   .claude/skills/release/scripts/verify-feed.sh /tmp/ac-appcast/appcast.xml
    sed -i '' '/<sparkle:phasedRolloutInterval>/d' /tmp/ac-appcast/appcast.xml
+   apps/browser/macos/Pods/Sparkle/bin/sign_update --account "$(scripts/lib/sparkle-account.sh)" /tmp/ac-appcast/appcast.xml
+   .claude/skills/release/scripts/verify-feed.sh --signed /tmp/ac-appcast/appcast.xml
    gh release upload v<version> -R mantrakp04/ardia /tmp/ac-appcast/appcast.xml --clobber
    .claude/skills/release/scripts/feed.sh <version>
    ```
-   (The appcast isn't signed as a whole, only its zip's `edSignature`, so editing the line keeps it valid.) The next
+   The appcast is signed as a whole: the signature at its end covers every byte before it, so any edit needs
+   `sign_update` again, and builds with `SURequireSignedFeed` ignore an edited feed that wasn't re-signed. The next
    release's `release.sh` starts from this published appcast, so it doesn't bring the interval back.
 
 A release without `--phased` goes to everyone at once, as before.
