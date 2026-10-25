@@ -86,17 +86,45 @@ let probes = 0;
 
 async function loadedAnywhere(path: string) {
   for (const engine of scriptsTargets(useBrowser.getState()).keys()) {
-    const list = await listExtensions(engine).catch((): InstalledExtension[] => []);
+    const list = await listExtensions(engine);
     if (list.some((x) => x.enabled && loadedFrom(x, path))) return true;
   }
   return false;
 }
 
+const PROBE_RETRY_MS = 2000;
+let probeRetry: ReturnType<typeof setTimeout> | null = null;
+const retryProbe = () => {
+  probeRetry ??= setTimeout(() => {
+    probeRetry = null;
+    void probe();
+  }, PROBE_RETRY_MS);
+  (probeRetry as { unref?: () => void }).unref?.();
+};
+
 async function probe() {
   const mine = ++probes;
-  const folder = await readUserScripts();
-  const active = folder.state !== "empty" && !!folder.path && (await loadedAnywhere(folder.path));
-  if (mine === probes) useUserScripts.setState({ active });
+  let folder: UserScriptsFolder;
+  try {
+    folder = await readUserScripts();
+  } catch (error) {
+    console.warn("[scripts] couldn't read the scripts folder", error);
+    retryProbe();
+    return;
+  }
+  if (folder.state === "empty" || !folder.path) {
+    if (mine === probes) useUserScripts.setState({ active: false });
+    return;
+  }
+  let loaded: boolean;
+  try {
+    loaded = await loadedAnywhere(folder.path);
+  } catch (error) {
+    console.warn("[scripts] couldn't ask the engine what's loaded", error);
+    retryProbe();
+    return;
+  }
+  if (mine === probes) useUserScripts.setState({ active: loaded });
 }
 
 async function seed() {
@@ -163,7 +191,7 @@ function schedule() {
     again = true;
     return;
   }
-  running = (async () => {
+  const run = (async () => {
     do {
       again = false;
       try {
@@ -172,8 +200,11 @@ function schedule() {
         console.warn("[scripts] couldn't apply the ardia scripts", error);
       }
     } while (again && enabled());
-    running = null;
   })();
+  running = run;
+  void run.then(() => {
+    if (running === run) running = null;
+  });
 }
 
 async function reportedGeneration() {
@@ -186,25 +217,31 @@ async function reportedGeneration() {
 }
 
 export async function stopUserScripts() {
-  await running;
-  const folder = await readUserScripts();
-  const path = folder.state === "empty" ? undefined : folder.path;
-  if (path) {
-    seeded = true;
-    const generation = folder.generation ?? (await reportedGeneration());
-    const status: Status = { generation, profiles: {} };
-    for (const [engine, names] of scriptsTargets(useBrowser.getState())) {
-      const outcome = await unload(engine, path);
-      if (!("error" in outcome)) applied.set(engine, { generation, wanted: "absent", outcome });
-      for (const name of names) status.profiles[name] = outcome;
+  const run = (async () => {
+    await running;
+    const folder = await readUserScripts();
+    const path = folder.state === "empty" ? undefined : folder.path;
+    if (path) {
+      seeded = true;
+      const generation = folder.generation ?? (await reportedGeneration());
+      const status: Status = { generation, profiles: {} };
+      for (const [engine, names] of scriptsTargets(useBrowser.getState())) {
+        const outcome = await unload(engine, path);
+        if (!("error" in outcome)) applied.set(engine, { generation, wanted: "absent", outcome });
+        for (const name of names) status.profiles[name] = outcome;
+      }
+      const json = JSON.stringify(status, null, 2);
+      if (json !== lastStatus) {
+        await writeUserScriptsStatus(json);
+        lastStatus = json;
+      }
     }
-    const json = JSON.stringify(status, null, 2);
-    if (json !== lastStatus) {
-      await writeUserScriptsStatus(json);
-      lastStatus = json;
-    }
-  }
-  await probe();
+    await probe();
+  })();
+  running = run;
+  await run;
+  if (running === run) running = null;
+  if (enabled()) schedule();
 }
 
 let started = false;
