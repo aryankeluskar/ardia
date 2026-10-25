@@ -493,6 +493,7 @@ own sign-ins instead.
 | Downloads panel (⇧⌘J, toolbar button) | ✓ | ✅ | our popover; Chrome's download bubble is off per profile (ledger 25) |
 | Progress, cancel, open, Show in Finder, clear | ✓ | ✅ | |
 | Pause / resume | ✓ | ✅ | |
+| Dangerous and insecure downloads: warning, Keep / Discard | ✓ | ✅ | Issue #248, 2026-10-24. With Chrome's download bubble off, a download Chrome holds back (an http download, or a file type that needs a gesture, such as a .dmg fetched by script) sat as "downloading" with no warning. Its row now shows Chrome's warning triangle and status, "Insecure download blocked" or "Unverified download blocked" (hover for Chrome's reason), with Keep (`ac_downloads_keep`, one press per warning, so an insecure .dmg asks twice as in Chrome) and Discard (cancels, which deletes the file, and drops the row, as Chrome's Discard). The engine sends only `dangerous`, so insecure is told from the URL: http and not loopback |
 | Open when done; move to Trash | ✓ | ✅ | "Open When Done" isn't remembered across a relaunch |
 | Persist downloads list across launches | ✓ | ✅ | downloads.json; incognito downloads never written (fixed 2026-10-06: they were, and showed in regular windows; ones an older build saved are dropped at launch). A window lists its profile's downloads, as Chrome's per-profile list (a private window its session's); before 2026-10-06 every regular window listed every profile's |
 | "Magnet" animation toward sidebar | ✓ | ✅ | |

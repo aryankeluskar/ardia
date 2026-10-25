@@ -14,6 +14,7 @@ export type Download = {
   total: number;
   speed: number;
   mimeType: string;
+  dangerous?: boolean;
   profile?: string;
   offTheRecord?: boolean;
 };
@@ -124,6 +125,7 @@ export const onDownload = (listener: (d: Download) => void) => Cef.addListener("
 export const cancelDownload = (id: string) => Cef.cancelDownload(id);
 export const pauseDownload = (id: string) => Cef.pauseDownload(id);
 export const resumeDownload = (id: string) => Cef.resumeDownload(id);
+export const keepDownload = (id: string) => Cef.keepDownload(id);
 
 export type DownloadSettings = { folder: string; askWhereToSave: boolean; managed: boolean };
 export const getDownloadSettings = (profile = "") => engineCall<DownloadSettings>("ac_downloads_settings", profile);
