@@ -4,7 +4,7 @@ import { PSL_TLDS } from "./tlds.ts";
 import { domainToASCII } from "node:url";
 import { cleanUrl } from "./cleanUrl.ts";
 import { displayHost, hostSpoofReason, punycodeEncode } from "./idn.ts";
-import { breadcrumb, classifyPaste, fixupUrl, resolveInput, stripJavascriptSchemes, urlForDisplay, withoutPastedJavascript } from "./omnibox.ts";
+import { addressParts, breadcrumb, classifyPaste, fixupUrl, registrableDomain, resolveInput, stripJavascriptSchemes, urlForDisplay, withoutPastedJavascript } from "./omnibox.ts";
 import { displayUrl } from "./suggest.ts";
 
 test("resolveInput turns typed text into a URL", () => {
@@ -214,6 +214,57 @@ test("a javascript: URL pasted into the field loses its scheme; one typed key by
   assert.equal(withoutPastedJavascript("javascript tutorial", "javascript:"), "javascript:");
   assert.equal(withoutPastedJavascript("javascript:alert(1)", "javascript:alert(12)"), "javascript:alert(12)");
   assert.equal(withoutPastedJavascript("hello", "hello world"), "hello world");
+});
+
+test("pasting over a selection measures the pasted text, not how little the field changed", () => {
+  const before = "javascript:alert(1)";
+  assert.equal(withoutPastedJavascript(before, "javascript:alert(2)", { start: 0, end: before.length }), "alert(2)");
+  assert.equal(withoutPastedJavascript(before, "javascript:alert(2)", { start: before.length, end: 0 }), "alert(2)");
+  assert.equal(withoutPastedJavascript(before, "javascript:alert(2)", { start: 17, end: 18 }), "javascript:alert(2)");
+  assert.equal(withoutPastedJavascript("java", "javascript://x%0Aalert(1)", { start: 4, end: 4 }), "//x%0Aalert(1)");
+  assert.equal(withoutPastedJavascript("javascript:alert(1", "javascript:alert(1)", { start: 18, end: 18 }), "javascript:alert(1)");
+  assert.equal(withoutPastedJavascript(before, "javascript:alert(2)", { start: 40, end: 50 }), "javascript:alert(2)");
+});
+
+test("registrableDomain follows the ICANN public suffix list, as Chrome's URL display does", () => {
+  const cases: [string, string][] = [
+    ["accounts.google.com", "google.com"],
+    ["accounts.google.com.secure-login.example", "secure-login.example"],
+    ["not-really-paypal.com", "not-really-paypal.com"],
+    ["a.b.example.co.uk", "example.co.uk"],
+    ["shop.example.com.au", "example.com.au"],
+    ["user.github.io", "github.io"],
+    ["a.b.kawasaki.jp", "a.b.kawasaki.jp"],
+    ["x.city.kawasaki.jp", "city.kawasaki.jp"],
+    ["x.www.ck", "www.ck"],
+    ["x.y.ck", "x.y.ck"],
+    ["mail.example.公司.cn", "example.公司.cn"],
+    ["mail.example.xn--55qx5d.cn", "example.xn--55qx5d.cn"],
+    ["example.com.", "example.com."],
+    ["co.uk", ""],
+    ["com", ""],
+    ["localhost", ""],
+    ["192.168.1.1", ""],
+    ["[::1]", ""],
+  ];
+  for (const [host, domain] of cases) assert.equal(registrableDomain(host), domain, host);
+});
+
+test("addressParts keeps the registrable domain whole and leaves URLs without a host as they are", () => {
+  assert.deepEqual(addressParts("https://accounts.google.com.evil-login.com/x"), { host: "accounts.google.com.evil-login.com", domain: "evil-login.com", rest: "/x" });
+  assert.deepEqual(addressParts("https://not-really-paypal.com/"), { host: "not-really-paypal.com", domain: "not-really-paypal.com", rest: "/" });
+  assert.deepEqual(addressParts("https://user:pw@login.example.co.uk:8443/a"), { host: "login.example.co.uk:8443", domain: "example.co.uk:8443", rest: "/a" });
+  assert.deepEqual(addressParts("https://www.example.com/"), { host: "example.com", domain: "example.com", rest: "/" });
+  assert.deepEqual(addressParts("http://192.168.1.1:8080/admin"), { host: "192.168.1.1:8080", domain: "192.168.1.1:8080", rest: "/admin" });
+  assert.deepEqual(addressParts("file:///Users/me/My%20File.html"), { host: "File", domain: "File", rest: " /Users/me/My File.html" });
+  assert.deepEqual(addressParts("ardia://settings/languages"), { host: "ardia://settings", domain: "ardia://settings", rest: "/languages" });
+  for (const url of ["data:text/html,<p>" + "x".repeat(300), "blob:https://evil.com/0b3c6f5e-8d1a-4c1e-9a7b-2f4d", "about:blank"]) {
+    assert.deepEqual(addressParts(url), { host: url, domain: url, rest: "" }, url);
+  }
+  for (const url of ["https://a.b.c.example.co.uk/", "https://xn--bcher-kva.de:81/x", "http://[::1]:8080/", "https://x.city.kawasaki.jp/"]) {
+    const { host, domain } = addressParts(url);
+    assert.ok(host.endsWith(domain), url);
+  }
 });
 
 test("displayed URLs never show a username or password", () => {

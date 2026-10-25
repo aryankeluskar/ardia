@@ -315,12 +315,14 @@ export function Omnibox({
     if (choice === "copy" || choice === "cut") copyText(value.slice(start, end));
     if (choice === "cut" || choice === "paste") {
       const insert = choice === "paste" ? await readPastedText() : "";
-      const next = value.slice(0, start) + insert + value.slice(end);
+      const combined = value.slice(0, start) + insert + value.slice(end);
+      const next = withoutPastedJavascript(value, combined, { start, end });
+      const caret = Math.max(0, start + insert.length - (combined.length - next.length));
       setTyped(next);
       setEdited(true);
       setSuppressCompletion(true);
       setSelected(0);
-      setPendingSelection({ start: start + insert.length, end: start + insert.length });
+      setPendingSelection({ start: caret, end: caret });
     }
     if (choice === "selectAll") setPendingSelection({ start: 0, end: value.length });
     focusField();
@@ -344,7 +346,8 @@ export function Omnibox({
   const onChangeText = (next: string) => {
     if (__DEV__) heardAt.current = Date.now();
     const fresh = Date.now() - selectionAt.current < 100;
-    const change = inline.read(next, { before: fresh ? selectionBefore.current : selection.current, after: selection.current });
+    const edit = { before: fresh ? selectionBefore.current : selection.current, after: selection.current };
+    const change = inline.read(next, edit);
     if (change.echo) {
       if (!change.stale) noteSelection({ start: change.inline.typed.length, end: next.length });
       return;
@@ -353,7 +356,7 @@ export function Omnibox({
     focusEcho.current = false;
     keyAt.current = Date.now();
     journeyKeystroke(tabId);
-    const text = withoutPastedJavascript(value, change.typed);
+    const text = withoutPastedJavascript(value, change.typed, edit.before);
     const bySpace = scope ? null : keywordBySpace(typed, text);
     const keyword = bySpace ? keywordScope(bySpace.keyword, windowId) : null;
     if (bySpace && keyword) return enterScope(keyword, bySpace.from);
