@@ -1,4 +1,4 @@
-import { breadcrumb, urlForDisplay } from "@ardia/core";
+import { addressParts } from "@ardia/core";
 import { ContextMenuArea, FadeLabel, MouseArea, Symbol, WindowDragRegion } from "@ardia/shell";
 import { memo, useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -21,6 +21,7 @@ import { toolbarPalette, useEasedColor, type ToolbarPalette } from "./layout/too
 import { setToolbarExtensionsWidth, SIDEBAR_FIELD } from "./layout/windowLayout";
 import { showUrlBarMenu } from "./omnibox/paste";
 import { useHover } from "./primitives";
+import { HostLabel } from "./HostLabel";
 import { ToolbarExtensions, useToolbarExtensionsWidth } from "./extensions/ToolbarExtensions";
 import { GlassFill, liquidGlass } from "./glass";
 import { TranslateButton } from "./site/TranslateControls";
@@ -288,11 +289,9 @@ export const UrlField = memo(function UrlField({
   const { hovered: pointerOver, hoverProps } = useHover();
   const popover = usePages((p) => p.popover[tab.id] ?? null);
   const hovered = pointerOver || popover === "siteControls";
-  const isFile = tab.url.startsWith("file:");
-  const host = isFile ? "File" : breadcrumb(tab.url).host;
-  const full = isFile ? ` ${safeDecode(tab.url.slice("file://".length))}` : urlForDisplay(tab.url);
-  const path = !isFile && full.startsWith(host) ? full.slice(host.length) : full;
-  const trail = hovered ? path : showFullUrl || !isWebUrl(tab.url) ? path.replace(/\/$/, "") : "";
+  const { host, domain, rest } = addressParts(tab.url);
+  const trail = hovered ? rest : showFullUrl || !isWebUrl(tab.url) ? rest.replace(/\/$/, "") : "";
+  const hostText = { fontSize: 13, fontWeight: "500", color: palette.text } as const;
 
   return (
     <View
@@ -333,9 +332,7 @@ export const UrlField = memo(function UrlField({
       <Pressable onPress={() => openPanel(tab.url)} style={{ flex: 1, height: sidebar?.height ?? 30, justifyContent: "center", paddingLeft: insecure ? LOCK.gap : sidebar ? 10 : urlTextLeft(false) }}>
         {sidebar ? (
           <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Text numberOfLines={1} ellipsizeMode="head" style={{ flexShrink: 1, fontSize: 13, fontWeight: "500", color: palette.text }}>
-              {host}
-            </Text>
+            <HostLabel host={host} domain={domain} textStyle={hostText} />
             <FadeLabel
               text={trail}
               fontSize={13}
@@ -346,9 +343,7 @@ export const UrlField = memo(function UrlField({
           </View>
         ) : (
           <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Text numberOfLines={1} ellipsizeMode="head" style={{ flexShrink: 1, fontSize: 13, fontWeight: "500", color: palette.text }}>
-              {host}
-            </Text>
+            <HostLabel host={host} domain={domain} textStyle={hostText} />
             {trail ? (
               <Text numberOfLines={1} style={{ flex: 1, fontSize: 13, color: palette.secondary }}>
                 {trail}
@@ -412,11 +407,3 @@ function CaptureIndicator({ camera, microphone, screen, onPress }: { camera: boo
 }
 
 const currentPopover = (tabId: string) => usePages.getState().popover[tabId] ?? null;
-
-function safeDecode(s: string) {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
-}
