@@ -1548,8 +1548,8 @@ NSMutableSet<ArdiaCorePopupWindow *> *PopupWindows() {
   return windows;
 }
 
-NSMapTable<ArdiaCoreWebView *, ArdiaCoreTab *> *PasswordPromptSources() {
-  static NSMapTable *sources = [NSMapTable weakToWeakObjectsMapTable];
+NSMapTable<ArdiaCoreWebView *, NSPointerArray *> *PasswordPromptSources() {
+  static NSMapTable *sources = [NSMapTable weakToStrongObjectsMapTable];
   return sources;
 }
 
@@ -1696,7 +1696,8 @@ NSImage *_Nullable PermissionIcon(NSDictionary *request) {
   _origin.stringValue = PopupOriginText(url);
   NSString *scheme = [NSURLComponents componentsWithString:url].scheme.lowercaseString;
   if (!level) level = [scheme isEqualToString:@"http"] || [scheme isEqualToString:@"ws"] ? @"insecure" : @"none";
-  NSString *symbol = @"info.circle", *description = @"Local or internal page";
+  const bool secureScheme = [scheme isEqualToString:@"https"] || [scheme isEqualToString:@"wss"];
+  NSString *symbol = @"info.circle", *description = secureScheme ? @"Connection security unknown" : @"Local or internal page";
   NSColor *tint = NSColor.secondaryLabelColor;
   if ([level isEqualToString:@"secure"]) {
     symbol = @"lock.fill";
@@ -1915,7 +1916,11 @@ NSImage *_Nullable PermissionIcon(NSDictionary *request) {
 
 - (void)window:(ArdiaCoreWindow *)window passwordPrompt:(NSDictionary<NSString *, id> *)prompt forTab:(ArdiaCoreTab *)tab {
   ArdiaCoreWebView *opener = _opener;
-  if (!opener || tab != _tab) return;
+  if (tab != _tab) return;
+  if (!opener) {
+    NSLog(@"[ardiacore] dropped a popup's password prompt: its opener is gone");
+    return;
+  }
   ardiacore_host::NotePasswordPromptSource(opener, tab);
   [opener emit:@"passwordPrompt" payload:prompt];
 }
@@ -1986,14 +1991,21 @@ int PromptBrowserId(ArdiaCoreTab *tab) {
 }
 
 void NotePasswordPromptSource(ArdiaCoreWebView *view, ArdiaCoreTab *source) {
-  if (source) [PasswordPromptSources() setObject:source forKey:view];
-  else [PasswordPromptSources() removeObjectForKey:view];
+  if (!source) {
+    [PasswordPromptSources() removeObjectForKey:view];
+    return;
+  }
+  NSPointerArray *route = [NSPointerArray weakObjectsPointerArray];
+  [route addPointer:(__bridge void *)source];
+  [PasswordPromptSources() setObject:route forKey:view];
 }
 
 ArdiaCoreTab *PasswordPromptTab(ArdiaCoreWebView *view, ArdiaCoreTab *own) {
-  ArdiaCoreTab *source = [PasswordPromptSources() objectForKey:view];
+  NSPointerArray *route = [PasswordPromptSources() objectForKey:view];
+  if (!route) return own;
   [PasswordPromptSources() removeObjectForKey:view];
-  return source && !source.closed ? source : own;
+  ArdiaCoreTab *source = (__bridge ArdiaCoreTab *)[route pointerAtIndex:0];
+  return source.closed ? nil : source;
 }
 
 void ActToggleFullScreen(NSWindow *window) {
