@@ -10,10 +10,11 @@ import { useHover } from "./primitives";
 
 const BAR_HEIGHT = 38;
 
-type Shown = "controlling" | "control" | "controlAndScripts" | "scripts";
+type Shown = "controlling" | "controllingAndScripts" | "control" | "controlAndScripts" | "scripts";
 
 const BAR_WORDS: Record<Shown, [string, string]> = {
   controlling: ["The ardia command", " is controlling Ardia"],
+  controllingAndScripts: ["The ardia command", " is controlling Ardia, and Ardia Scripts are running"],
   control: ["The ardia command", " can control Ardia"],
   controlAndScripts: ["The ardia command", " can control Ardia, and Ardia Scripts are running"],
   scripts: ["Ardia Scripts", " are running"],
@@ -21,8 +22,9 @@ const BAR_WORDS: Record<Shown, [string, string]> = {
 
 const PILL_WORDS: Record<Shown, [string, string]> = {
   controlling: ["ardia", " is controlling Ardia"],
+  controllingAndScripts: ["ardia", " is controlling Ardia, and Ardia Scripts are running"],
   control: ["ardia", " can control Ardia"],
-  controlAndScripts: ["ardia", " can control Ardia"],
+  controlAndScripts: ["ardia", " can control Ardia, and Ardia Scripts are running"],
   scripts: ["Ardia Scripts", " are running"],
 };
 
@@ -30,7 +32,7 @@ const useShown = (): Shown | null => {
   const controlling = useCli((s) => s.server?.state === "on" && (s.server.connections ?? 0) > 0);
   const control = useBrowser((s) => s.settings.cliControl ?? false);
   const scripts = useUserScripts((s) => s.active);
-  if (controlling) return "controlling";
+  if (controlling) return scripts ? "controllingAndScripts" : "controlling";
   if (control) return scripts ? "controlAndScripts" : "control";
   return scripts ? "scripts" : null;
 };

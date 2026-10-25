@@ -23,21 +23,8 @@ public class KeychainModule: Module {
 
     AsyncFunction("set") { (account: String, secret: String) -> Bool in
       if let store = IsolatedSecrets.shared { return store.set(account, secret) }
-      let data = Data(secret.utf8)
-      let update: [String: Any] = [kSecValueData as String: data]
-      var status = SecItemUpdate(Self.query(account) as CFDictionary, update as CFDictionary)
-      if status == errSecItemNotFound {
-        var add = Self.query(account)
-        add[kSecValueData as String] = data
-        add[kSecAttrLabel as String] = "Ardia: \(account)"
-        status = SecItemAdd(add as CFDictionary, nil)
-      } else if status != errSecSuccess {
-        SecItemDelete(Self.query(account) as CFDictionary)
-        var add = Self.query(account)
-        add[kSecValueData as String] = data
-        status = SecItemAdd(add as CFDictionary, nil)
-      }
-      return status == errSecSuccess
+      let added = [kSecAttrLabel as String: "Ardia: \(account)"]
+      return writeKeychainItem(Data(secret.utf8), query: Self.query(account), adding: added) == errSecSuccess
     }
 
     AsyncFunction("delete") { (account: String) -> Bool in
@@ -56,6 +43,15 @@ public class KeychainModule: Module {
   }
 }
 
+private func writeKeychainItem(_ data: Data, query: [String: Any], adding added: [String: Any]) -> OSStatus {
+  let updated = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+  if updated == errSecSuccess { return updated }
+  if updated != errSecItemNotFound { SecItemDelete(query as CFDictionary) }
+  var add = query.merging(added) { kept, _ in kept }
+  add[kSecValueData as String] = data
+  return SecItemAdd(add as CFDictionary, nil)
+}
+
 private enum SecuritySettingsSeal {
   private static let service = "Ardia Security Settings"
   private static let account = "approved"
@@ -69,15 +65,8 @@ private enum SecuritySettingsSeal {
 
   static func seal(_ values: String) -> Bool {
     if let store = IsolatedSecrets.securitySettings { return store.set(account, values) }
-    let data = Data(values.utf8)
-    var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-    if status == errSecItemNotFound {
-      var add = query
-      add[kSecValueData as String] = data
-      add[kSecAttrLabel as String] = service
-      add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-      status = SecItemAdd(add as CFDictionary, nil)
-    }
+    let added: [String: Any] = [kSecAttrLabel as String: service, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+    let status = writeKeychainItem(Data(values.utf8), query: query, adding: added)
     if status != errSecSuccess { NSLog("[settings] couldn't record the security settings in the Keychain: \(status)") }
     return status == errSecSuccess
   }
