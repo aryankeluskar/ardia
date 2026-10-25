@@ -3,7 +3,7 @@ import { SyncNative, type FolderInfo } from "@ardia/sync";
 import { useEffect, useState, type ReactNode } from "react";
 import { Image, StyleSheet, Text, TextInput, View } from "react-native";
 import { useTheme } from "../../../lib/theme";
-import { enterRecoveryPhrase, stopSync } from "../../../sync/engine";
+import { enterRecoveryPhrase, stopSync, unlockPasswordSync, useSync } from "../../../sync/engine";
 import { Button, Checkbox, Sheet, useFormColors } from "../controls";
 import { closeSettingsSheet, showSettingsSheet } from "../sheet";
 
@@ -38,7 +38,10 @@ function RecoveryKitSheet() {
   const colors = useFormColors();
   const [preview, setPreview] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
-  useEffect(() => void SyncNative?.recoveryKitPreview(168).then(setPreview), []);
+  useEffect(() => {
+    void SyncNative?.recoveryKitPreview(168).then(setPreview);
+    return () => SyncNative?.lockRecoveryPhrase();
+  }, []);
   const save = async (format: "pdf" | "text") => {
     const path = await SyncNative?.saveRecoveryKit(format);
     if (path) setSaved(path);
@@ -131,8 +134,9 @@ function PhraseSheet({ folder, onChooseFolder }: { folder: FolderInfo | null; on
     const result = await enterRecoveryPhrase(folder.path, text);
     setBusy(false);
     const message = phraseError(result);
-    if (message) setError(message);
-    else closeSettingsSheet();
+    if (message) return setError(message);
+    closeSettingsSheet();
+    if (useSync.getState().types.passwords) void unlockPasswordSync();
   };
   return (
     <Sheet width={440} onClose={closeSettingsSheet}>
@@ -198,7 +202,10 @@ function ConnectDeviceSheet() {
   const colors = useFormColors();
   const [qr, setQr] = useState<string | null>(null);
   const [words, setWords] = useState<string[] | null>(null);
-  useEffect(() => void SyncNative?.qrCode().then(setQr), []);
+  useEffect(() => {
+    void SyncNative?.qrCode().then(setQr);
+    return () => SyncNative?.lockRecoveryPhrase();
+  }, []);
   return (
     <Sheet width={480} onClose={closeSettingsSheet}>
       <Title>Connect Another Device</Title>

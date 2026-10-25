@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export const docs = new Map();
 export const readDocument = (name) => docs.get(name) ?? null;
 export const writeDocument = (name, contents) => docs.set(name, contents);
@@ -59,7 +61,12 @@ export const savePassword = async (_profile, origin, username, password) => {
   return true;
 };
 export const deletePassword = async (_profile, origin, username) => (logins().delete(`${origin}\n${username}`), true);
-export const readLogins = async () => [...logins().values()];
+const digestOf = (password) => `d:${createHash("sha256").update(password).digest("base64").slice(0, 22)}`;
+let seals = 0;
+const sealOf = (password) => `s:${++seals}:${Buffer.from(password).toString("base64")}`;
+export const readLogins = async () => [...logins().values()].map(({ password, ...login }) => ({ ...login, digest: digestOf(password), secret: sealOf(password) }));
+export const openPassword = async (secret) => (/^s:\d+:/.test(secret) ? Buffer.from(secret.slice(secret.indexOf(":", 2) + 1), "base64").toString() : null);
+export const protectPasswords = async (passwords) => passwords.map((password) => ({ d: digestOf(password), s: sealOf(password) }));
 
 export const historyDbs = new Map();
 export const chromeHistory = (profile = "", device = current.device) => {
