@@ -279,3 +279,24 @@ test("Stop unloads even while the CLI holds the folder, and reports the last gen
   assert.equal(scripts.useUserScripts.getState().active, false);
   assert.deepEqual(lastWrite(), { generation: 9, profiles: { Personal: { removed: true }, "Personal (2)": { removed: true }, Side: { removed: true } } });
 });
+
+test("Stop on a never-installed folder touches nothing, with scripts present it still unloads", async () => {
+  calls.length = 0;
+  folder = { state: "empty", path: PATH };
+  const writes = fake.writes.length;
+  await scripts.stopUserScripts();
+  assert.equal(calls.length, 0);
+  assert.equal(fake.writes.length, writes);
+  assert.equal(scripts.useUserScripts.getState().active, false);
+  folder = { state: "ready", generation: 10, path: PATH };
+  useBrowser.getState().updateSettings({ cliControl: true });
+  await settle();
+  assert.deepEqual(calls.filter(([k]) => k === "install").map(([, p]) => p).sort(), ["", "work"]);
+  useBrowser.getState().updateSettings({ cliControl: false });
+  await settle();
+  assert.equal(scripts.useUserScripts.getState().active, true);
+  calls.length = 0;
+  await scripts.stopUserScripts();
+  assert.deepEqual(calls.filter(([k]) => k === "uninstall").map(([, p]) => p).sort(), ["", "work"]);
+  assert.deepEqual(lastWrite(), { generation: 10, profiles: { Personal: { removed: true }, "Personal (2)": { removed: true }, Side: { removed: true } } });
+});

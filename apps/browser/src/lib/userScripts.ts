@@ -188,7 +188,7 @@ async function reportedGeneration() {
 export async function stopUserScripts() {
   await running;
   const folder = await readUserScripts();
-  const path = folder.path;
+  const path = folder.state === "empty" ? undefined : folder.path;
   if (path) {
     seeded = true;
     const generation = folder.generation ?? (await reportedGeneration());
