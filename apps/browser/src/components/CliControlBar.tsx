@@ -3,24 +3,59 @@ import { useEffect, useRef, useState } from "react";
 import { Animated, Easing, Pressable, Text, View } from "react-native";
 import { stopCliControl, useCli } from "../lib/cliControl";
 import { useTheme } from "../lib/theme";
+import { stopUserScripts, useUserScripts } from "../lib/userScripts";
+import { useBrowser } from "../store/browser";
 import { PromptButton } from "./layout/controls";
 import { useHover } from "./primitives";
 
 const BAR_HEIGHT = 38;
 
-const useControlled = () => useCli((s) => s.server?.state === "on" && (s.server.connections ?? 0) > 0);
+type Shown = "controlling" | "control" | "controlAndScripts" | "scripts";
+
+const BAR_WORDS: Record<Shown, [string, string]> = {
+  controlling: ["The ardia command", " is controlling Ardia"],
+  control: ["The ardia command", " can control Ardia"],
+  controlAndScripts: ["The ardia command", " can control Ardia, and Ardia Scripts are running"],
+  scripts: ["Ardia Scripts", " are running"],
+};
+
+const PILL_WORDS: Record<Shown, [string, string]> = {
+  controlling: ["ardia", " is controlling Ardia"],
+  control: ["ardia", " can control Ardia"],
+  controlAndScripts: ["ardia", " can control Ardia"],
+  scripts: ["Ardia Scripts", " are running"],
+};
+
+const useShown = (): Shown | null => {
+  const controlling = useCli((s) => s.server?.state === "on" && (s.server.connections ?? 0) > 0);
+  const control = useBrowser((s) => s.settings.cliControl ?? false);
+  const scripts = useUserScripts((s) => s.active);
+  if (controlling) return "controlling";
+  if (control) return scripts ? "controlAndScripts" : "control";
+  return scripts ? "scripts" : null;
+};
+
+const stopAll = () => {
+  const scripts = useUserScripts.getState().active;
+  stopCliControl();
+  if (scripts) void stopUserScripts();
+};
 
 export function CliControlBar() {
-  const visible = useControlled();
+  const shown = useShown();
+  const visible = shown !== null;
+  const last = useRef<Shown>(shown ?? "controlling");
+  if (shown) last.current = shown;
   const [mounted, setMounted] = useState(visible);
   useEffect(() => {
     if (visible) setMounted(true);
   }, [visible]);
   if (!mounted && !visible) return null;
-  return <ShownCliControlBar visible={visible} onHidden={() => setMounted(false)} />;
+  return <ShownCliControlBar visible={visible} shown={last.current} onHidden={() => setMounted(false)} />;
 }
 
-function ShownCliControlBar({ visible, onHidden }: { visible: boolean; onHidden: () => void }) {
+function ShownCliControlBar({ visible, shown, onHidden }: { visible: boolean; shown: Shown; onHidden: () => void }) {
+  const [lead, rest] = BAR_WORDS[shown];
   const theme = useTheme();
   const height = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -32,7 +67,7 @@ function ShownCliControlBar({ visible, onHidden }: { visible: boolean; onHidden:
     <Animated.View style={{ height, overflow: "hidden" }}>
       <View
         accessibilityRole="alert"
-        accessibilityLabel="The ardia command is controlling Ardia"
+        accessibilityLabel={lead + rest}
         style={{
           height: BAR_HEIGHT,
           flexDirection: "row",
@@ -48,23 +83,24 @@ function ShownCliControlBar({ visible, onHidden }: { visible: boolean; onHidden:
           <Symbol name="terminal.fill" size={9} weight="bold" color={theme.dark ? "#000000" : "#FFFFFF"} style={{ width: 14, height: 14 }} />
         </View>
         <Text numberOfLines={1} style={{ flex: 1, fontSize: 13, color: theme.textSecondary }}>
-          <Text style={{ fontWeight: "600", color: theme.textPrimary }}>The ardia command</Text>
-          {" is controlling Ardia"}
+          <Text style={{ fontWeight: "600", color: theme.textPrimary }}>{lead}</Text>
+          {rest}
         </Text>
-        <PromptButton title="Stop" onPress={stopCliControl} />
+        <PromptButton title="Stop" onPress={stopAll} />
       </View>
     </Animated.View>
   );
 }
 
 export function CliControlPill() {
-  const controlled = useControlled();
-  if (!controlled) return null;
+  const shown = useShown();
+  if (!shown) return null;
+  const [lead, rest] = PILL_WORDS[shown];
   return (
     <View pointerEvents="box-none" style={{ position: "absolute", top: 12, left: 0, right: 0, alignItems: "center" }}>
       <View
         accessibilityRole="alert"
-        accessibilityLabel="The ardia command is controlling Ardia"
+        accessibilityLabel={lead + rest}
         style={{
           flexDirection: "row",
           alignItems: "center",
@@ -80,8 +116,8 @@ export function CliControlPill() {
       >
         <Symbol name="terminal.fill" size={10} weight="semibold" color="#FFFFFF" style={{ width: 14, height: 14 }} />
         <Text numberOfLines={1} style={{ fontSize: 12, color: "rgba(255,255,255,0.85)" }}>
-          <Text style={{ fontWeight: "600", color: "#FFFFFF" }}>ardia</Text>
-          {" is controlling Ardia"}
+          <Text style={{ fontWeight: "600", color: "#FFFFFF" }}>{lead}</Text>
+          {rest}
         </Text>
         <StopPill />
       </View>
@@ -93,7 +129,7 @@ function StopPill() {
   const { hovered, hoverProps } = useHover();
   return (
     <View {...hoverProps}>
-      <Pressable onPress={stopCliControl} accessibilityRole="button" accessibilityLabel="Stop">
+      <Pressable onPress={stopAll} accessibilityRole="button" accessibilityLabel="Stop">
         {({ pressed }) => (
           <View
             style={{
