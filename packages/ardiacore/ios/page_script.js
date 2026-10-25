@@ -316,6 +316,7 @@
     document.documentElement.appendChild(eyeHost);
   };
   const noteAutofill = (el) => {
+    if (!el.value) return autofilled.delete(el);
     let filled;
     try {
       filled = el.matches(":autofill");
@@ -343,19 +344,25 @@
     guard((e) => {
       const el = e.target;
       if (!(el instanceof HTMLInputElement) || !isPassword(el)) return;
-      if (!el.value) {
-        typedByUser.delete(el);
-        autofilled.delete(el);
-      } else if (e.isTrusted) typedByUser.add(el);
+      if (!el.value) typedByUser.delete(el);
+      else if (e.isTrusted) typedByUser.add(el);
       noteAutofill(el);
       updateEye();
-      setTimeout(
-        guard(() => {
-          noteAutofill(el);
-          updateEye();
-        }),
-        0,
-      );
+      if (!autofilled.has(el))
+        setTimeout(
+          guard(() => {
+            noteAutofill(el);
+            if (autofilled.has(el)) updateEye();
+          }),
+          0,
+        );
+    }),
+    true,
+  );
+  document.addEventListener(
+    "beforeinput",
+    guard((e) => {
+      if (e.target instanceof HTMLInputElement && isPassword(e.target)) noteAutofill(e.target);
     }),
     true,
   );
