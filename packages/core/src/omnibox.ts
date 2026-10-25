@@ -232,7 +232,7 @@ export function urlForDisplay(url: string): string {
   if (appUrlOrigin(url)) return toAppUrl(url).replace(/^([^/]*\/\/[^/?#]*)\/(?=[?#]|$)/, "$1");
   const rest = url.replace(SCHEME_AND_USERINFO, "");
   const host = /^[^/?#:]*/.exec(rest)![0];
-  return shownDomainHost(displayHost(host)) + rest.slice(host.length);
+  return shownDomainHost(displayHost(host.toLowerCase())) + rest.slice(host.length);
 }
 
 export type AddressParts = { host: string; domain: string; rest: string };
