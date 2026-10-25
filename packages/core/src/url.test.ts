@@ -110,6 +110,13 @@ test("displayed URLs say ardia://, never chrome://", () => {
   assert.deepEqual(breadcrumb("chrome://flags/", "Experiments"), { host: "ardia://flags", trail: ["Experiments"] });
 });
 
+test("a mixed-case host displays like its lowercase self, and the path never repeats it", () => {
+  assert.equal(urlForDisplay("https://WWW.Example.com/x"), "example.com/x");
+  assert.deepEqual(addressParts("https://WWW.Example.com/x"), { host: "example.com", domain: "example.com", rest: "/x" });
+  assert.deepEqual(addressParts("https://WWW.Example.COM:8443/x"), { host: "example.com:8443", domain: "example.com:8443", rest: "/x" });
+  assert.equal(urlForDisplay("https://WWW.Example.com"), "example.com");
+});
+
 test("host:port navigates: single-label intranet hosts over http, a number or a time never", () => {
   assert.equal(fixupUrl("myserver:8080"), "http://myserver:8080");
   assert.equal(fixupUrl("localhost:3000"), "http://localhost:3000");
