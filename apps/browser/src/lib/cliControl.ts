@@ -167,4 +167,4 @@ export function startCliControl() {
   afterFirstWindow(() => setTimeout(upgradeIfBehind, UPGRADE_DELAY_MS));
 }
 
-if (__DEV__) (globalThis as { acCli?: unknown }).acCli = { store: useCli, indicator: useCliIndicator, install: installCliInBackground, upgradeIfBehind };
+if (__DEV__) (globalThis as { acCli?: unknown }).acCli = { store: useCli, install: installCliInBackground, upgradeIfBehind };

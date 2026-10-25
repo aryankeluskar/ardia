@@ -1,4 +1,4 @@
-import { installExtension, listExtensions, reloadExtension, uninstallExtension, type InstalledExtension } from "@ardia/ardiacore";
+import { installExtension, listExtensions, onExtensionsChanged, reloadExtension, uninstallExtension, type InstalledExtension } from "@ardia/ardiacore";
 import {
   onUserScriptsChange,
   readUserScripts,
@@ -82,10 +82,7 @@ let seeded = false;
 let lastStatus: string | null = null;
 let running: Promise<void> | null = null;
 let again = false;
-let reported = false;
 let probes = 0;
-
-const folderPath = (folder: UserScriptsFolder) => ("path" in folder ? folder.path : undefined);
 
 async function loadedAnywhere(path: string) {
   for (const engine of scriptsTargets(useBrowser.getState()).keys()) {
@@ -97,9 +94,9 @@ async function loadedAnywhere(path: string) {
 
 async function probe() {
   const mine = ++probes;
-  const path = folderPath(await readUserScripts());
-  const active = !!path && (await loadedAnywhere(path));
-  if (mine === probes && (!enabled() || !reported)) useUserScripts.setState({ active });
+  const folder = await readUserScripts();
+  const active = folder.state !== "empty" && !!folder.path && (await loadedAnywhere(folder.path));
+  if (mine === probes) useUserScripts.setState({ active });
 }
 
 async function seed() {
@@ -151,8 +148,7 @@ async function reconcile() {
     if (!("error" in outcome)) applied.set(engine, { generation, wanted, outcome });
     if (!enabled()) return;
   }
-  reported = true;
-  useUserScripts.setState({ active: [...outcomes.values()].some((o) => "ok" in o) });
+  void probe();
   if (again || !enabled()) return;
   const status: Status = { generation, profiles: {} };
   for (const [engine, names] of targets) for (const name of names) status.profiles[name] = outcomes.get(engine)!;
@@ -180,13 +176,22 @@ function schedule() {
   })();
 }
 
+async function reportedGeneration() {
+  try {
+    const status = JSON.parse((await readUserScriptsStatus()) ?? "null") as Status | null;
+    return typeof status?.generation === "number" ? status.generation : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function stopUserScripts() {
   await running;
   const folder = await readUserScripts();
-  const path = folderPath(folder);
+  const path = folder.path;
   if (path) {
     seeded = true;
-    const generation = folder.generation ?? 0;
+    const generation = folder.generation ?? (await reportedGeneration());
     const status: Status = { generation, profiles: {} };
     for (const [engine, names] of scriptsTargets(useBrowser.getState())) {
       const outcome = await unload(engine, path);
@@ -222,6 +227,7 @@ export function startUserScripts() {
     if (turnedOff) void probe();
   };
   sync(useBrowser.getState());
+  onExtensionsChanged(() => void probe());
   void probe();
   useBrowser.subscribe((s, prev) => {
     if (s.settings.cliControl !== prev.settings.cliControl || s.profileOrder !== prev.profileOrder || s.profiles !== prev.profiles) sync(s);

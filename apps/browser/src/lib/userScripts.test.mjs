@@ -253,3 +253,29 @@ test("after Stop, turning control back on loads the scripts again", async () => 
   assert.deepEqual(calls.filter(([k]) => k === "install").map(([, p]) => p).sort(), ["", "work"]);
   assert.equal(scripts.useUserScripts.getState().active, true);
 });
+
+test("the bar follows the engine when Ardia Scripts is turned off and on elsewhere", async () => {
+  const setEnabled = (on) => {
+    for (const exts of installed.values()) for (const ext of exts.values()) Object.assign(ext, { enabled: on, state: on ? "ENABLED" : "DISABLED" });
+    for (const listener of globalThis.acTestExtensionsChanged ?? []) listener({ profile: "", id: "abc", event: on ? "enabled" : "disabled" });
+  };
+  assert.equal(scripts.useUserScripts.getState().active, true);
+  setEnabled(false);
+  await settle();
+  assert.equal(scripts.useUserScripts.getState().active, false);
+  setEnabled(true);
+  await settle();
+  assert.equal(scripts.useUserScripts.getState().active, true);
+});
+
+test("Stop unloads even while the CLI holds the folder, and reports the last generation", async () => {
+  folder = { state: "busy", path: PATH };
+  useBrowser.getState().updateSettings({ cliControl: false });
+  await settle();
+  assert.equal(scripts.useUserScripts.getState().active, true);
+  calls.length = 0;
+  await scripts.stopUserScripts();
+  assert.deepEqual(calls.filter(([k]) => k === "uninstall").map(([, p]) => p).sort(), ["", "work"]);
+  assert.equal(scripts.useUserScripts.getState().active, false);
+  assert.deepEqual(lastWrite(), { generation: 9, profiles: { Personal: { removed: true }, "Personal (2)": { removed: true }, Side: { removed: true } } });
+});
