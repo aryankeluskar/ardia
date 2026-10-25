@@ -550,7 +550,7 @@ static NSString *DisplayMediaAudioFor(NSDictionary *offer, NSString *sourceId) {
 
 static void AnswerHello(ArdiaCoreTab *tab, NSString *profile, NSString *frameId, BOOL main, NSString *verifiedOrigin) {
   const BOOL verified = verifiedOrigin.length && ![verifiedOrigin isEqualToString:@"null"];
-  NSString *origin = main && verified ? verifiedOrigin : OriginOf(tab.url);
+  NSString *origin = verified ? verifiedOrigin : OriginOf(tab.url);
   __weak ArdiaCoreTab *weakTab = tab;
   void (^answer)(BOOL) = ^(BOOL blockAutoplay) {
     ArdiaCoreTab *to = weakTab;
