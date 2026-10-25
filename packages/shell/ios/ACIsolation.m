@@ -1,12 +1,34 @@
 #import "ACIsolation.h"
 
 #import <AppKit/AppKit.h>
+#import <Security/Security.h>
 #import <objc/runtime.h>
 
 static NSString *gDataDirectory;
 static NSUserDefaults *gDefaults;
 
 NSString *ACIsolatedDataDirectory(void) { return gDataDirectory; }
+
+static BOOL TeamSigned(void) {
+  SecCodeRef code = NULL;
+  if (SecCodeCopySelf(kSecCSDefaultFlags, &code) != errSecSuccess) return NO;
+  CFDictionaryRef info = NULL;
+  OSStatus status = SecCodeCopySigningInformation((SecStaticCodeRef)code, kSecCSSigningInformation, &info);
+  CFRelease(code);
+  if (status != errSecSuccess || !info) return NO;
+  BOOL team = CFDictionaryGetValue(info, kSecCodeInfoTeamIdentifier) != NULL;
+  CFRelease(info);
+  return team;
+}
+
+BOOL ACScratchInstance(void) {
+  static BOOL scratch;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    scratch = gDataDirectory != nil || !TeamSigned();
+  });
+  return scratch;
+}
 
 static NSUserDefaults *IsolatedStandardUserDefaults(id self, SEL _cmd) { return gDefaults; }
 

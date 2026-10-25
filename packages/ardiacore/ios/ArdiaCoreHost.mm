@@ -10,7 +10,12 @@
 #import "ArdiaCoreWebViewInternal.h"
 
 #include <cctype>
+#include <climits>
+#include <cstdlib>
 #include <cstring>
+#include <pwd.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <set>
 #include <string>
 #include <vector>
@@ -90,6 +95,48 @@ bool IsTeamSigned() {
   bool team = CFDictionaryGetValue(info, kSecCodeInfoTeamIdentifier) != nullptr;
   CFRelease(info);
   return team;
+}
+
+NSString *ResolvedPath(NSString *path) {
+  NSMutableArray<NSString *> *missing = [NSMutableArray array];
+  NSString *dir = path.stringByStandardizingPath;
+  char resolved[PATH_MAX];
+  while (!realpath(dir.fileSystemRepresentation, resolved)) {
+    NSString *parent = dir.stringByDeletingLastPathComponent;
+    if ([parent isEqualToString:dir]) return path.stringByStandardizingPath;
+    [missing insertObject:dir.lastPathComponent atIndex:0];
+    dir = parent;
+  }
+  NSString *full = @(resolved);
+  for (NSString *name in missing) full = [full stringByAppendingPathComponent:name];
+  return full;
+}
+
+bool SameDirectory(NSString *a, NSString *b) {
+  if ([a caseInsensitiveCompare:b] == NSOrderedSame) return true;
+  struct stat sa, sb;
+  return !stat(a.fileSystemRepresentation, &sa) && !stat(b.fileSystemRepresentation, &sb) && sa.st_dev == sb.st_dev &&
+         sa.st_ino == sb.st_ino;
+}
+
+bool Within(NSString *inner, NSString *outer) {
+  for (NSString *dir = inner;; dir = dir.stringByDeletingLastPathComponent) {
+    if (SameDirectory(dir, outer)) return true;
+    if ([dir isEqualToString:dir.stringByDeletingLastPathComponent]) return false;
+  }
+}
+
+bool OverlapsInstalledData(NSString *dataDir) {
+  NSMutableArray<NSString *> *installed = [NSMutableArray arrayWithObject:InstalledDataDirectory().stringByDeletingLastPathComponent];
+  if (const struct passwd *user = getpwuid(getuid()); user && user->pw_dir)
+    [installed addObject:[[@(user->pw_dir) stringByAppendingPathComponent:@"Library/Application Support"]
+                             stringByAppendingPathComponent:NSBundle.mainBundle.bundleIdentifier ?: @"com.ardia.browser"]];
+  NSString *mine = ResolvedPath(dataDir);
+  for (NSString *dir in installed) {
+    NSString *theirs = ResolvedPath(dir);
+    if (Within(mine, theirs) || Within(theirs, mine)) return true;
+  }
+  return false;
 }
 
 }
@@ -548,6 +595,11 @@ static void StartEarlyWindow() {
   NSString *scratch = gScratchDataDir ? @(dataDir) : nil;
   if (scratch && !scratch.absolutePath)
     scratch = [NSFileManager.defaultManager.currentDirectoryPath stringByAppendingPathComponent:scratch];
+  if (scratch && OverlapsInstalledData(scratch) && IsTeamSigned()) {
+    fprintf(stderr, "[ardiacore] ARDIA_DATA_DIR %s overlaps the installed data dir; set it to a scratch directory\n",
+            scratch.fileSystemRepresentation);
+    return 1;
+  }
   gDataDirectory = scratch ? [scratch.stringByStandardizingPath stringByAppendingPathComponent:@"Chromium"] : InstalledDataDirectory();
   NSError *dirError;
   if (![NSFileManager.defaultManager createDirectoryAtPath:gDataDirectory withIntermediateDirectories:YES attributes:nil error:&dirError]) {
