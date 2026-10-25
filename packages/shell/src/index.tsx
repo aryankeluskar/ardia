@@ -123,6 +123,7 @@ export type CommandEvent = {
 
 export type WindowEvent =
   | { type: "focus"; id: string }
+  | { type: "occlusion"; id: string; visible: boolean }
   | { type: "close"; id: string }
   | { type: "frame"; id: string; frame: [number, number, number, number] }
   | { type: "leftEdge"; id: string; over: boolean; point: [number, number] }
