@@ -1391,6 +1391,8 @@ static void ExpireLaunchTab(ArdiaCoreTab *tab) {
   reports[@"seen"] = @(_seenByUser);
   reports[@"pip"] = @(_inPictureInPicture);
   reports[@"autoPip"] = @(_autoPictureInPictureActive);
+  reports[@"pipOwner"] = @(_ownsPictureInPicture);
+  reports[@"pipFrame"] = _pictureInPictureFrame;
   if (!_tab.closed) objc_setAssociatedObject(_tab, &kPageReportsKey, reports, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   [self takeReports:nil];
 }
@@ -1416,6 +1418,9 @@ static void ExpireLaunchTab(ArdiaCoreTab *tab) {
   if (reports[@"seen"]) _seenByUser = [reports[@"seen"] boolValue];
   _inPictureInPicture = [reports[@"pip"] boolValue];
   _autoPictureInPictureActive = [reports[@"autoPip"] boolValue];
+  _ownsPictureInPicture = [reports[@"pipOwner"] boolValue];
+  _pictureInPictureFrame = reports[@"pipFrame"];
+  if (_ownsPictureInPicture) [self bindPictureInPicture];
 }
 
 - (void)closeBrowser {
@@ -2311,8 +2316,8 @@ void ArdiaCoreWebViewsSetFieldTiming(BOOL on) {
     NSDictionary<NSString *, NSDictionary *> *frames = _nowPlaying;
     NSInteger (^rank)(NSString *) = ^NSInteger(NSString *f) {
       NSDictionary *np = f ? frames[f] : nil;
-      return ([np[@"controllable"] boolValue] ? 4 : 0) + ([np[@"main"] boolValue] ? 2 : 0) +
-             ([np[@"playbackState"] isEqual:@"playing"] ? 1 : 0);
+      return ([np[@"controllable"] boolValue] ? 4 : 0) + ([np[@"playbackState"] isEqual:@"playing"] ? 2 : 0) +
+             ([np[@"main"] boolValue] ? 1 : 0);
     };
     for (NSString *f in _nowPlaying)
       if (rank(f) > rank(_nowPlayingFrame)) _nowPlayingFrame = f;
@@ -2979,12 +2984,14 @@ static NSString *LinkKeyAction(NSString *key) {
   if (![state[@"kind"] isEqual:@"document"]) {
     _ownsPictureInPicture = [state[@"active"] boolValue];
     if (_ownsPictureInPicture) return [self bindPictureInPicture];
+    ardiacore_pip::VideoChanged(self, @"", @"", false);
     _pictureInPictureFrame = nil;
     if (!_inPictureInPicture) return;
     _inPictureInPicture = NO;
     [self emit:@"pictureInPicture" payload:@{@"kind" : @"video", @"active" : @NO}];
     return;
   }
+  if (_ownsPictureInPicture) ardiacore_pip::VideoChanged(self, @"", @"", false);
   _ownsPictureInPicture = NO;
   _inPictureInPicture = [state[@"active"] boolValue];
   [self emit:@"pictureInPicture" payload:@{@"kind" : @"document", @"active" : @([state[@"active"] boolValue])}];
