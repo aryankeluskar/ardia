@@ -392,7 +392,7 @@ function prepareApp(app, out, bundle) {
   const plist = (command) => spawnSync("/usr/libexec/PlistBuddy", ["-c", command, entitlements], { stdio: "ignore" });
   for (const [, key] of granted.matchAll(/<key>([^<]+)<\/key>/g)) if (restrictedEntitlement.test(key)) plist(`Delete :${key}`);
   for (const key of ["com.apple.security.cs.allow-dyld-environment-variables", "com.apple.security.cs.disable-library-validation"]) plist(`Add :${key} bool true`);
-  execFileSync("codesign", ["--force", "--deep", "--sign", "-", "--timestamp=none", "--preserve-metadata=identifier,entitlements", copy], { stdio: "ignore" });
+  execFileSync("codesign", ["--force", "--deep", "--sign", "-", "--timestamp=none", "--options", "runtime", "--preserve-metadata=identifier,entitlements", copy], { stdio: "ignore" });
   execFileSync("codesign", ["--force", "--sign", "-", "--timestamp=none", "--options", "runtime", "--entitlements", entitlements, copy], { stdio: "inherit" });
   writeFileSync(join(out, "prepared.json"), JSON.stringify({ app, bundle, date: new Date().toISOString() }));
   return copy;
