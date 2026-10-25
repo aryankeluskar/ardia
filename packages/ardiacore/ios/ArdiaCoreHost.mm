@@ -87,11 +87,11 @@ NSString *InstalledDataDirectory() {
 
 bool IsTeamSigned() {
   SecCodeRef code = nullptr;
-  if (SecCodeCopySelf(kSecCSDefaultFlags, &code) != errSecSuccess) return false;
+  if (SecCodeCopySelf(kSecCSDefaultFlags, &code) != errSecSuccess) return true;
   CFDictionaryRef info = nullptr;
   OSStatus status = SecCodeCopySigningInformation((SecStaticCodeRef)code, kSecCSSigningInformation, &info);
   CFRelease(code);
-  if (status != errSecSuccess || !info) return false;
+  if (status != errSecSuccess || !info) return true;
   bool team = CFDictionaryGetValue(info, kSecCodeInfoTeamIdentifier) != nullptr;
   CFRelease(info);
   return team;
@@ -113,7 +113,7 @@ NSString *ResolvedPath(NSString *path) {
 }
 
 bool SameDirectory(NSString *a, NSString *b) {
-  if ([a caseInsensitiveCompare:b] == NSOrderedSame) return true;
+  if ([a isEqualToString:b]) return true;
   struct stat sa, sb;
   return !stat(a.fileSystemRepresentation, &sa) && !stat(b.fileSystemRepresentation, &sb) && sa.st_dev == sb.st_dev &&
          sa.st_ino == sb.st_ino;
@@ -161,6 +161,7 @@ static void TryEarlyLittleWindow();
 namespace {
 ArdiaCoreBootstrapDelegate *gBootstrap;
 bool gScratchDataDir = false;
+bool gMockKeychain = false;
 bool gAppKitWillFinish = false;
 bool gAppKitDidFinish = false;
 NSArray<NSURL *> *gPendingLaunchURLs;
@@ -691,7 +692,8 @@ static void StartEarlyWindow() {
       "--profile-directory=Default",
       "--js-flags=--no-memory-reducer",
   };
-  const bool mockKeychain = gScratchDataDir || !IsTeamSigned();
+  gMockKeychain = gScratchDataDir || !IsTeamSigned();
+  const bool mockKeychain = gMockKeychain;
   if (mockKeychain) extra.push_back("--use-mock-keychain");
   ardiacore_host::PrepareStartup(gDataDirectory, extra);
   @autoreleasepool {
@@ -956,6 +958,10 @@ static void StartEarlyWindow() {
     }];
   }
   return sources;
+}
+
++ (BOOL)usesMockKeychain {
+  return gMockKeychain;
 }
 
 + (BOOL)isStarted {
