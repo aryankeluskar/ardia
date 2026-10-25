@@ -204,7 +204,7 @@ scripts/agent/locked perflab -- node apps/browser/scripts/perf/native-bench.mjs 
 
 ```sh
 # J2 and J4 from real key events, on a Release build of the tree (scripts/agent/build-app --as <you> --config Release);
-# first `--only prepare` (or any run) makes the signed copy, then --prepared reuses it
+# first `--only prepare` makes the signed copy (an ordinary run deletes its own), then --prepared reuses it
 scripts/agent/locked perflab --as <you> -- node apps/browser/scripts/perf/native-bench.mjs --app $S/prepared/Ardia.app --prepared \
   --label rel --out $S/journeys --port 9684 --page-port 47881 --only newtabkey,navigate --runs 3 --journey-n 10
 ```
