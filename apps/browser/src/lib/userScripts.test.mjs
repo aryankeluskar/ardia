@@ -300,3 +300,56 @@ test("Stop on a never-installed folder touches nothing, with scripts present it 
   assert.deepEqual(calls.filter(([k]) => k === "uninstall").map(([, p]) => p).sort(), ["", "work"]);
   assert.deepEqual(lastWrite(), { generation: 10, profiles: { Personal: { removed: true }, "Personal (2)": { removed: true }, Side: { removed: true } } });
 });
+
+test("an engine query failure keeps the bar up, and the probe retries on its own", async () => {
+  folder = { state: "ready", generation: 11, path: PATH };
+  useBrowser.getState().updateSettings({ cliControl: true });
+  await settle();
+  assert.equal(scripts.useUserScripts.getState().active, true);
+  useBrowser.getState().updateSettings({ cliControl: false });
+  await settle();
+  assert.equal(scripts.useUserScripts.getState().active, true);
+  const list = fake.engine.list;
+  fake.engine.list = async () => {
+    throw new Error("engine busy");
+  };
+  for (const listener of globalThis.acTestExtensionsChanged ?? []) listener({ profile: "", id: "abc", event: "enabled" });
+  await settle();
+  assert.equal(scripts.useUserScripts.getState().active, true);
+  installed.get("").get("abc").enabled = false;
+  installed.get("work").get("abc").enabled = false;
+  fake.engine.list = list;
+  await new Promise((r) => setTimeout(r, 2100));
+  await settle();
+  assert.equal(scripts.useUserScripts.getState().active, false);
+  installed.get("").get("abc").enabled = true;
+  installed.get("work").get("abc").enabled = true;
+});
+
+test("control re-enabled while Stop unloads reconciles once the stop is done", async () => {
+  folder = { state: "ready", generation: 12, path: PATH };
+  useBrowser.getState().updateSettings({ cliControl: true });
+  await settle();
+  assert.equal(scripts.useUserScripts.getState().active, true);
+  const uninstall = fake.engine.uninstall;
+  let open;
+  gate = new Promise((r) => (open = r));
+  fake.engine.uninstall = async (id, profile) => {
+    await gate;
+    return uninstall(id, profile);
+  };
+  calls.length = 0;
+  useBrowser.getState().updateSettings({ cliControl: false });
+  const stopping = scripts.stopUserScripts();
+  await settle();
+  useBrowser.getState().updateSettings({ cliControl: true });
+  await settle();
+  assert.deepEqual(calls.filter(([k]) => k === "install"), []);
+  open();
+  await stopping;
+  await settle();
+  assert.deepEqual(calls.filter(([k]) => k === "install").map(([, p]) => p), ["", "work"]);
+  assert.deepEqual(lastWrite().profiles.Personal, { ok: true });
+  fake.engine.uninstall = uninstall;
+  gate = null;
+});

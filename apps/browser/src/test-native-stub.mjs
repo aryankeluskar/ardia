@@ -27,7 +27,7 @@ export const keychainGet = () => Promise.resolve(null);
 export const keychainSet = () => Promise.resolve(true);
 export const keychainDelete = () => Promise.resolve(true);
 export const securitySeal = { on: false, approved: null, writes: [] };
-export const sealSecuritySettings = (values) => (securitySeal.writes.push(values), (securitySeal.approved = values), true);
+export const sealSecuritySettings = (values) => (globalThis.acTestSeal ? globalThis.acTestSeal(values) : (securitySeal.writes.push(values), (securitySeal.approved = values), true));
 export const securitySettingsSealed = (values) => !securitySeal.on || securitySeal.approved === values;
 export const confirm = () => Promise.resolve({ confirmed: false, suppressed: false });
 export const onWindowEvent = () => ({ remove() {} });

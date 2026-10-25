@@ -49,3 +49,34 @@ test("changing a security setting records it, other settings don't", () => {
   flushPersistence({ final: true });
   stop();
 });
+
+test("a failed seal keeps the old approval pending and records the off value on retry", async () => {
+  const ON = "cliControl=true;allowJavaScriptFromAppleEvents=false";
+  stub.securitySeal.approved = ON;
+  session({ cliControl: true, allowJavaScriptFromAppleEvents: false });
+  let fail = true;
+  globalThis.acTestSeal = (values) => {
+    if (fail) return false;
+    stub.securitySeal.writes.push(values);
+    stub.securitySeal.approved = values;
+    return true;
+  };
+  const stop = startPersistence();
+  stub.securitySeal.writes.length = 0;
+  useBrowser.getState().updateSettings({ cliControl: false });
+  assert.equal(stub.securitySeal.approved, ON);
+  assert.deepEqual(stub.securitySeal.writes, []);
+  fail = false;
+  await new Promise((r) => setTimeout(r, 2100));
+  assert.equal(stub.securitySeal.approved, OFF);
+  globalThis.acTestSeal = null;
+  flushPersistence({ final: true });
+  stop();
+});
+
+test("a launch with everything off records the off state when the seal doesn't match", () => {
+  stub.securitySeal.approved = "cliControl=true;allowJavaScriptFromAppleEvents=false";
+  session({});
+  loadSession();
+  assert.equal(stub.securitySeal.approved, OFF);
+});

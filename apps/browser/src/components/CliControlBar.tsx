@@ -38,9 +38,8 @@ const useShown = (): Shown | null => {
 };
 
 const stopAll = () => {
-  const scripts = useUserScripts.getState().active;
   stopCliControl();
-  if (scripts) void stopUserScripts();
+  void stopUserScripts();
 };
 
 export function CliControlBar() {
