@@ -8,8 +8,10 @@ public final class AppUpdater: NSObject {
 
   static var feedOverride: String? {
     let env = ProcessInfo.processInfo.environment
-    if feedOverrideAllowed, let feed = env["ARDIA_UPDATE_FEED_URL"] ?? UserDefaults.standard.string(forKey: "ACUpdateFeedURL"),
-      isAllowedFeed(feed) { return feed }
+    if feedOverrideAllowed, var feed = env["ARDIA_UPDATE_FEED_URL"] ?? UserDefaults.standard.string(forKey: "ACUpdateFeedURL") {
+      feed = feed.trimmingCharacters(in: .whitespacesAndNewlines)
+      if isAllowedFeed(feed) { return feed }
+    }
     return env["ARDIA_BACKGROUND"] == "1" ? "https://github.com/mantrakp04/ardia/releases/latest/download/appcast.xml" : nil
   }
 
