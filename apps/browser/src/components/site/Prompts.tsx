@@ -10,7 +10,8 @@ import { useHover } from "../primitives";
 import { PANEL, PanelCloseButton, Popover, PopoverRow, PopoverSeparator, PromptButton } from "../layout/controls";
 import { Checkbox } from "../settings/controls";
 import { patchPage, pageOf, setPopover, usePage } from "../layout/pageState";
-import { answerPermission, canAllowOnce, describePermission, originForDisplay } from "./permissions";
+import { originForDisplay } from "./origin";
+import { answerPermission, canAllowOnce, describePermission } from "./permissions";
 
 const hostOf = (origin: string) => {
   try {
@@ -90,7 +91,7 @@ export function BlockedPopupsPrompt({ tabId, right, left, top }: { tabId: string
   };
   const profile = () => engineProfile(useBrowser.getState().tabs[tabId]?.profileId ?? "");
   return (
-    <Popover guard={origin} width={BLOCKED_POPUPS_WIDTH} top={top} right={right} left={left} onDismiss={close}>
+    <Popover guard={popups} width={BLOCKED_POPUPS_WIDTH} top={top} right={right} left={left} onDismiss={close}>
       <View style={{ paddingBottom: PANEL.listPadding }}>
         <PromptBody
           icons={["macwindow.badge.plus"]}
