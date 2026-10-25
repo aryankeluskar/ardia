@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { PSL_TLDS } from "./tlds.ts";
+import { PSL_TLDS } from "./publicSuffixes.ts";
 import { domainToASCII } from "node:url";
 import { cleanUrl } from "./cleanUrl.ts";
 import { displayHost, hostSpoofReason, punycodeEncode } from "./idn.ts";
@@ -152,7 +152,7 @@ test("an unknown TLD searches unless a port, a trailing slash or two of path, qu
 });
 
 test("a known registry navigates with or without a path (Chrome's public suffix list)", () => {
-  for (const text of ["site.photography/about", "docs.new", "report.zip", "shop.bike", "hello.world", "a.xn--p1ai", "b.中国", "c.рф"]) {
+  for (const text of ["site.photography/about", "docs.new", "report.zip", "shop.bike", "hello.world", "plans.web", "a.xn--p1ai", "b.中国", "c.рф"]) {
     assert.ok(fixupUrl(text), text);
   }
   for (const text of ["index.html", "node.js", "e.g.", "1.5", "a.b", "c++", "v1.2.3", "file.txt", "README.md.bak", "hi@example.com"]) {
@@ -164,7 +164,7 @@ test("random hosts: a known TLD or a port navigates, a bare unknown name or a sp
   let seed = 7;
   const rnd = (n: number) => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0), seed % n);
   const pick = <T,>(list: readonly T[]): T => list[rnd(list.length)]!;
-  const tlds = PSL_TLDS.split(/\s+/).filter((t) => t.length > 1 && t !== "local" && t !== "localhost");
+  const tlds = PSL_TLDS.filter((t) => t.length > 1 && t !== "local" && t !== "localhost");
   const labels = ["a", "foo", "my-site", "x1", "münchen", "яндекс", "例え", "9lives", "a-b-c"];
   for (let i = 0; i < 3000; i++) {
     const host = `${pick(labels)}${rnd(3) ? "" : `.${pick(labels)}`}.${pick(tlds)}`;
@@ -226,17 +226,23 @@ test("pasting over a selection measures the pasted text, not how little the fiel
   assert.equal(withoutPastedJavascript(before, "javascript:alert(2)", { start: 40, end: 50 }), "javascript:alert(2)");
 });
 
-test("registrableDomain follows the ICANN public suffix list, as Chrome's URL display does", () => {
+test("registrableDomain follows the public suffix list with private registries counted, as Chrome's URL display does", () => {
   const cases: [string, string][] = [
     ["accounts.google.com", "google.com"],
     ["accounts.google.com.secure-login.example", "secure-login.example"],
     ["not-really-paypal.com", "not-really-paypal.com"],
     ["a.b.example.co.uk", "example.co.uk"],
     ["shop.example.com.au", "example.com.au"],
-    ["user.github.io", "github.io"],
+    ["user.github.io", "user.github.io"],
+    ["evil-paypal.github.io", "evil-paypal.github.io"],
+    ["upload.wontfix.pages.dev", "wontfix.pages.dev"],
+    ["x.vercel.app", "x.vercel.app"],
+    ["foo.pages.dev", "foo.pages.dev"],
+    ["example.github.io", "example.github.io"],
     ["a.b.kawasaki.jp", "a.b.kawasaki.jp"],
     ["x.city.kawasaki.jp", "city.kawasaki.jp"],
     ["x.www.ck", "www.ck"],
+    ["www.ck", "www.ck"],
     ["x.y.ck", "x.y.ck"],
     ["mail.example.公司.cn", "example.公司.cn"],
     ["mail.example.xn--55qx5d.cn", "example.xn--55qx5d.cn"],
@@ -258,13 +264,20 @@ test("addressParts keeps the registrable domain whole and leaves URLs without a 
   assert.deepEqual(addressParts("http://192.168.1.1:8080/admin"), { host: "192.168.1.1:8080", domain: "192.168.1.1:8080", rest: "/admin" });
   assert.deepEqual(addressParts("file:///Users/me/My%20File.html"), { host: "File", domain: "File", rest: " /Users/me/My File.html" });
   assert.deepEqual(addressParts("ardia://settings/languages"), { host: "ardia://settings", domain: "ardia://settings", rest: "/languages" });
+  assert.deepEqual(addressParts("https://example.com:443/x"), { host: "example.com", domain: "example.com", rest: "/x" });
+  assert.deepEqual(addressParts("http://example.com:80/x"), { host: "example.com", domain: "example.com", rest: "/x" });
+  assert.deepEqual(addressParts("http://[::1]:80/x"), { host: "[::1]", domain: "[::1]", rest: "/x" });
+  assert.deepEqual(addressParts("https://example.com:8443/x"), { host: "example.com:8443", domain: "example.com:8443", rest: "/x" });
+  assert.deepEqual(addressParts("http://[::1]:8080/x"), { host: "[::1]:8080", domain: "[::1]:8080", rest: "/x" });
   for (const url of ["data:text/html,<p>" + "x".repeat(300), "blob:https://evil.com/0b3c6f5e-8d1a-4c1e-9a7b-2f4d", "about:blank"]) {
     assert.deepEqual(addressParts(url), { host: url, domain: url, rest: "" }, url);
   }
-  for (const url of ["https://a.b.c.example.co.uk/", "https://xn--bcher-kva.de:81/x", "http://[::1]:8080/", "https://x.city.kawasaki.jp/"]) {
-    const { host, domain } = addressParts(url);
-    assert.ok(host.endsWith(domain), url);
-  }
+  assert.deepEqual(addressParts("https://a.b.c.example.co.uk/"), { host: "a.b.c.example.co.uk", domain: "example.co.uk", rest: "/" });
+  assert.deepEqual(addressParts("https://x.city.kawasaki.jp/"), { host: "x.city.kawasaki.jp", domain: "city.kawasaki.jp", rest: "/" });
+  assert.deepEqual(addressParts("http://[::1]:8080/"), { host: "[::1]:8080", domain: "[::1]:8080", rest: "/" });
+  assert.deepEqual(addressParts("https://xn--bcher-kva.de:81/x"), { host: "bücher.de:81", domain: "bücher.de:81", rest: "/x" });
+  assert.deepEqual(addressParts("https://www.ck/"), { host: "www.ck", domain: "www.ck", rest: "/" });
+  assert.deepEqual(addressParts("https://evil-paypal.github.io/a"), { host: "evil-paypal.github.io", domain: "evil-paypal.github.io", rest: "/a" });
 });
 
 test("displayed URLs never show a username or password", () => {
