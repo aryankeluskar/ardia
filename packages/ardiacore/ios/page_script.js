@@ -246,6 +246,7 @@
   };
 
   const typedByUser = new WeakSet();
+  const autofilled = new WeakSet();
   let revealedField = null;
   let eyeField = null;
   let eyeHost = null;
@@ -317,9 +318,22 @@
     eyeButton.title = "Show password";
     document.documentElement.appendChild(eyeHost);
   };
+  const noteAutofill = (el) => {
+    let filled;
+    try {
+      filled = el.matches(":autofill");
+    } catch {
+      filled = el.matches(":-webkit-autofill");
+    }
+    if (!filled) return;
+    autofilled.add(el);
+    if (revealedField === el) conceal();
+  };
   const updateEye = guard(() => {
     const el = document.activeElement;
-    const show = el instanceof HTMLInputElement && isPassword(el) && el.value && typedByUser.has(el) && el.getBoundingClientRect().width >= 80;
+    if (el instanceof HTMLInputElement) noteAutofill(el);
+    const show =
+      el instanceof HTMLInputElement && isPassword(el) && el.value && typedByUser.has(el) && !autofilled.has(el) && el.getBoundingClientRect().width >= 80;
     if (!show) return hideEye();
     if (eyeField !== el && hasOwnToggle(el)) return hideEye();
     ensureEye();
@@ -332,9 +346,19 @@
     guard((e) => {
       const el = e.target;
       if (!(el instanceof HTMLInputElement) || !isPassword(el)) return;
-      if (!el.value) typedByUser.delete(el);
-      else if (e.isTrusted) typedByUser.add(el);
+      if (!el.value) {
+        typedByUser.delete(el);
+        autofilled.delete(el);
+      } else if (e.isTrusted) typedByUser.add(el);
+      noteAutofill(el);
       updateEye();
+      setTimeout(
+        guard(() => {
+          noteAutofill(el);
+          updateEye();
+        }),
+        0,
+      );
     }),
     true,
   );
