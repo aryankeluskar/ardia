@@ -503,7 +503,7 @@ async function run() {
     }
   } finally {
     server.close();
-    rmSync(join(out, "apps"), { recursive: true, force: true });
+    for (const side of sides) rmSync(dirname(side.app), { recursive: true, force: true });
   }
 }
 
