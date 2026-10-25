@@ -1273,6 +1273,7 @@ bool Attach(ArdiaCoreWebView *view, NSString *host, NSString *frameId) {
     ACPiPController *controller = [ACPiPController forWindow:window];
     if (!IsChromeVideoPictureInPicture(window) && !(controller && window.visible)) continue;
     if (!window.hasShadow) continue;
+    if (controller.view && controller.view != view) continue;
     BOOL fresh = !controller;
     if (fresh) controller = [[ACPiPController alloc] initWithWindow:window];
     controller.view = view;
@@ -1308,12 +1309,16 @@ void TabRequestedActivation(ArdiaCoreWebView *view) {
 
 void VideoChanged(ArdiaCoreWebView *view, NSString *host, NSString *frameId, bool active) {
   if (!active) return;
+  static NSMapTable<ArdiaCoreWebView *, NSNumber *> *searches = [NSMapTable weakToStrongObjectsMapTable];
+  const NSInteger search = [searches objectForKey:view].integerValue + 1;
+  [searches setObject:@(search) forKey:view];
   __block int tries = 0;
   __block void (^look)(void);
   __weak ArdiaCoreWebView *weakView = view;
   look = ^{
     ArdiaCoreWebView *strongView = weakView;
-    if (!strongView || Attach(strongView, host, frameId) || ++tries >= 20) {
+    if (!strongView || [searches objectForKey:strongView].integerValue != search || Attach(strongView, host, frameId) ||
+        ++tries >= 20) {
       look = nil;
       return;
     }

@@ -702,7 +702,7 @@ const TabWebView = memo(function TabWebView({ tabId, visible, warm, peekOf }: { 
         if (kind === "selection") setPageSelection(tabId, data as PageSelection | null);
         else if (kind === "scroll") noteScroll(tabId, data);
       }}
-      onNotificationClose={closeWebNotification}
+      onNotificationClose={(id) => closeWebNotification(tabId, id)}
       onDiscarded={(url) => {
         pending.current = url;
         fromNewTab.current = false;
