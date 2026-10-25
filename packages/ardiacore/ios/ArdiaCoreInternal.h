@@ -39,6 +39,9 @@ void OpenPopupWindow(ArdiaCoreTab *tab, ArdiaCoreWebView *_Nullable opener);
 bool IsReservedKeyEvent(NSEvent *event);
 bool IsReservedBinding(NSString *key, NSString *unshiftedKey, NSEventModifierFlags modifiers);
 NSUInteger PopupWindowCount();
+int PromptBrowserId(ArdiaCoreTab *tab);
+void NotePasswordPromptSource(ArdiaCoreWebView *view, ArdiaCoreTab *_Nullable source);
+ArdiaCoreTab *_Nullable PasswordPromptTab(ArdiaCoreWebView *view, ArdiaCoreTab *_Nullable own);
 
 }
 

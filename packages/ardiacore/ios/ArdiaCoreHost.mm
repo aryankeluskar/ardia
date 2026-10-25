@@ -449,7 +449,7 @@ static void StartEarlyWindow() {
 
 - (void)engine:(ArdiaCoreEngine *)engine permissionRequest:(NSDictionary *)request tab:(ArdiaCoreTab *)tab {
   NSMutableDictionary *payload = [request mutableCopy];
-  payload[@"browserId"] = @(tab ? ardiacore_host::BrowserId(tab) : 0);
+  payload[@"browserId"] = @(tab ? ardiacore_host::PromptBrowserId(tab) : 0);
   if (gEventHandler) gEventHandler(@"permission", payload);
 }
 
