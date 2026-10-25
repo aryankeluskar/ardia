@@ -1,7 +1,7 @@
-import { cancelDownload, keepDownload, pauseDownload, resumeDownload, type Download } from "@ardia/ardiacore";
+import { cancelDownload, discardDownload, keepDownload, pauseDownload, resumeDownload, type Download } from "@ardia/ardiacore";
 import { hostOf } from "@ardia/core";
 import { ContextMenuArea, copyText, fileExists, fileIcon, MouseArea, moveToTrash, openFile, PopoverBubble, popoverBubbleAvailable, revealFile, showMenu, Surface, Symbol, VisualEffect, type MenuItem } from "@ardia/shell";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Animated, Easing, Image, Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
 import { hex, layout, useTheme } from "../lib/theme";
 import { useShallow } from "zustand/react/shallow";
@@ -47,7 +47,15 @@ export function downloadStatus(d: Download, exists = true) {
 }
 
 const LOOPBACK_HOST = /^(localhost|.+\.localhost|127\.\d+\.\d+\.\d+|\[::1\])$/;
+const KEEP_SETTLE_MS = 500;
 const keptInsecure = new Set<string>();
+const keepTimes = new Map<string, number>();
+const keepListeners = new Set<() => void>();
+const subscribeKeeps = (listener: () => void) => {
+  keepListeners.add(listener);
+  return () => void keepListeners.delete(listener);
+};
+export const useKeptInsecure = () => useSyncExternalStore(subscribeKeeps, () => keptInsecure.size);
 
 export function downloadWarning(d: Download) {
   if (d.state !== "downloading" || !d.dangerous) return null;
@@ -58,13 +66,19 @@ export function downloadWarning(d: Download) {
 }
 
 export function keepDangerousDownload(d: Download) {
-  if (downloadWarning(d)?.insecure) keptInsecure.add(d.id);
+  const now = Date.now();
+  if (now - (keepTimes.get(d.id) ?? 0) < KEEP_SETTLE_MS) return;
+  keepTimes.set(d.id, now);
+  if (downloadWarning(d)?.insecure) {
+    keptInsecure.add(d.id);
+    keepListeners.forEach((listener) => listener());
+  }
   void keepDownload(d.id);
 }
 
-export function discardDownload(id: string) {
+export function discardDangerousDownload(id: string) {
   useBrowser.getState().discardDownload(id);
-  void cancelDownload(id);
+  void discardDownload(id);
 }
 
 export const warningTint = (dark: boolean) => (dark ? "#FF9F0A" : "#FF9500");
@@ -117,7 +131,7 @@ export async function downloadMenu(d: Download, windowId: string) {
   if (choice === "resume") void resumeDownload(d.id);
   if (choice === "cancel") void cancelDownload(d.id);
   if (choice === "keep") keepDangerousDownload(d);
-  if (choice === "discard") discardDownload(d.id);
+  if (choice === "discard") discardDangerousDownload(d.id);
   if (choice === "open") void openFile(d.path);
   if (choice === "reveal") void revealFile(d.path);
   if (choice === "copy") copyText(d.url);
@@ -474,6 +488,7 @@ const DownloadRowItem = memo(function DownloadRowItem({ id, windowId }: { id: st
 function DangerousDownloadRow({ d, windowId }: { d: Download; windowId: string }) {
   const theme = useTheme();
   const { hovered, hoverProps } = useHover();
+  useKeptInsecure();
   const warning = downloadWarning(d)!;
   return (
     <View {...hoverProps}>
@@ -499,7 +514,7 @@ function DangerousDownloadRow({ d, windowId }: { d: Download; windowId: string }
           </View>
           <View style={{ flexDirection: "row", gap: CHOICE_GAP, marginTop: CHOICE_GAP, marginLeft: FILE_ICON + PANEL.iconGap }}>
             <ChoiceButton title="Keep" onPress={() => keepDangerousDownload(d)} />
-            <ChoiceButton title="Discard" onPress={() => discardDownload(d.id)} />
+            <ChoiceButton title="Discard" onPress={() => discardDangerousDownload(d.id)} />
           </View>
         </View>
       </ContextMenuArea>

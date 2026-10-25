@@ -7,7 +7,7 @@ import { useTheme } from "../../lib/theme";
 import { useBrowser } from "../../store/browser";
 import { downloadsIn } from "../../store/ui";
 import { openUrl } from "../bookmarks/actions";
-import { discardDownload, downloadMenu, downloadStatus, downloadWarning, FileIcon, keepDangerousDownload, warningText, warningTint } from "../Downloads";
+import { discardDangerousDownload, downloadMenu, downloadStatus, downloadWarning, FileIcon, keepDangerousDownload, useKeptInsecure, warningText, warningTint } from "../Downloads";
 import { IconButton, useHover } from "../primitives";
 import { Button, useFormColors } from "../settings/controls";
 import { EmptyState, hostLabel, matchesQuery, PAGE_WIDTH, PageHeader } from "./PageLayout";
@@ -52,6 +52,7 @@ function DownloadCard({ d, windowId }: { d: Download; windowId: string }) {
   const exists = d.state !== "finished" || fileExists(d.path);
   const done = d.state === "finished" && exists;
   const progress = d.total > 0 ? d.received / d.total : 0;
+  useKeptInsecure();
   const warning = downloadWarning(d);
   return (
     <View {...hoverProps} style={{ width: PAGE_WIDTH - 32, maxWidth: "100%" }}>
@@ -103,7 +104,7 @@ function DownloadCard({ d, windowId }: { d: Download; windowId: string }) {
           {warning ? (
             <View style={{ flexDirection: "row", gap: 8 }}>
               <Button title="Keep" onPress={() => keepDangerousDownload(d)} />
-              <Button title="Discard" onPress={() => discardDownload(d.id)} />
+              <Button title="Discard" onPress={() => discardDangerousDownload(d.id)} />
             </View>
           ) : d.state === "downloading" ? (
             <View style={{ flexDirection: "row", gap: 8 }}>
