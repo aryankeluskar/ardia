@@ -2988,7 +2988,7 @@ static NSString *LinkKeyAction(NSString *key) {
 }
 
 - (void)resolvePasswordPrompt:(NSString *)action username:(NSString *)username password:(NSString *)password {
-  [_tab resolvePasswordPrompt:action username:username password:password];
+  [ardiacore_host::PasswordPromptTab(self, _tab) resolvePasswordPrompt:action username:username password:password];
 }
 
 - (void)resolveAutofillPrompt:(NSInteger)promptId action:(NSString *)action {
