@@ -88,8 +88,10 @@ Every step that writes the feed signs it with the Sparkle key, which stays in th
 - The staged rollout's edit (the `release` skill, 5b) re-signs the same way.
 
 The feed this builds on is checked too. `release.sh` and `appcast-merge.sh` refuse a published feed whose signature
-doesn't verify, so a tampered feed is never carried forward and signed again; an unsigned one is accepted only until
-a tagged release includes `SURequireSignedFeed`. `verify-feed.sh` needs no key, only `SUPublicEDKey`.
+doesn't verify, so a tampered feed is never carried forward and signed again. They refuse an unsigned one too, except
+with `ALLOW_UNSIGNED_FEED=1`, which only the first release that signs the feed needs, once, for `release.sh` and for
+its publish step (the published feed up to 0.2.41-nightly.1 is unsigned). A `--rc` build accepts an unsigned feed on its
+own, since it's never published. `verify-feed.sh` needs no key, only `SUPublicEDKey`.
 
 ## Keeping up with Chrome
 
@@ -132,7 +134,9 @@ stays up. That's GPL-3.0 §6(d) for the GPL parts (uBlock Origin today), and it'
   `ardia`, or the app's old name in lower case on the Mac that made it before the rename: `LegacyName.appName`;
   `scripts/lib/sparkle-account.sh` finds either by the item's attributes, `SPARKLE_ACCOUNT` overrides). Its public
   half is `SUPublicEDKey` in `apps/browser/macos/Ardia-macOS/Info.plist`. Every update and the feed must be signed with
-  it, and since builds require a signed feed, losing it stops updates, so keep an offline backup:
+  it, so losing it stops updates: with `SUVerifyUpdateBeforeExtraction`, Sparkle takes a new key only from an update
+  shipped as a Developer ID-signed DMG, and a copy offers it only after 20 days of failed feed checks
+  (`SUSignedFeedFailureExpirationInterval`). Keep an offline backup:
   `apps/browser/macos/Pods/Sparkle/bin/generate_keys --account <account> -x <file>` exports it, and `-f <file>`
   imports it on another machine. The release scripts never export it: `generate_appcast` and `sign_update` read it
   from the keychain (`--account`). Make the item ask on every use: Keychain Access › the item › Access Control ›

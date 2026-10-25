@@ -19,17 +19,18 @@ jobs:
       - env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          engine=$(curl -fsSL --retry 3 "https://raw.githubusercontent.com/$REPO/$SHA/engine/patches/build/env.sh" | sed -n 's/^export CHROMIUM_VERSION=//p')
-          stable=$(curl -fsSL --retry 3 'https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Mac&num=1' | jq -r '.[0].version')
+          SHA=$(timeout 60 git ls-remote "https://github.com/$REPO" HEAD | cut -f1)
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::couldn't resolve the default branch of $REPO"; exit 1; }
+          engine=$(curl -fsSL --retry 3 --connect-timeout 10 --max-time 30 "https://raw.githubusercontent.com/$REPO/$SHA/engine/patches/build/env.sh" | sed -n 's/^export CHROMIUM_VERSION=//p')
+          stable=$(curl -fsSL --retry 3 --connect-timeout 10 --max-time 30 'https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Mac&num=1' | jq -r '.[0].version')
           for version in "$engine" "$stable"; do
             [[ "$version" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || { echo "::error::couldn't read the versions (engine '$engine', Chrome Mac Stable '$stable')"; exit 1; }
           done
           prefix="Engine behind Chrome Stable:"
-          open=$(gh issue list --repo "$REPO" --state open --limit 200 --json number,title \
-            --jq "map(select(.title | startswith(\"$prefix\"))) | .[0].number // empty")
+          open=$(gh api --paginate "repos/$REPO/issues?state=open&per_page=100" \
+            --jq ".[] | select(.pull_request == null and (.title | startswith(\"$prefix\"))) | .number" | awk 'NR == 1')
           if [ "$(printf '%s\n%s\n' "$engine" "$stable" | sort -V | tail -1)" = "$engine" ]; then
             echo "The engine (Chromium $engine) is current with Chrome's Mac Stable ($stable)."
             if [ -n "$open" ]; then

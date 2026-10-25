@@ -33,15 +33,14 @@ print(signature.group(1))
 PY
 )"
 if [ -z "$signature" ]; then
-  signed_since="$(git -C "$root" log --format=%H -S SURequireSignedFeed --reverse -- apps/browser/macos/Ardia-macOS/Info.plist | awk 'NR == 1')"
-  first_tag=""
-  [ -z "$signed_since" ] || first_tag="$(git -C "$root" tag --list 'v*' --contains "$signed_since" --sort=creatordate | awk 'NR == 1')"
-  if [ "$required" = 1 ] || [ -n "$first_tag" ]; then
-    echo "FAIL  $feed is signed  (it carries no Sparkle signature${first_tag:+; $first_tag and later builds reject an unsigned feed})"
-    exit 1
+  if [ "$required" = 0 ] && [ "${ALLOW_UNSIGNED_FEED:-0}" = 1 ]; then
+    echo "warning: $feed has no Sparkle signature; accepted because ALLOW_UNSIGNED_FEED=1" >&2
+    exit 0
   fi
-  echo "note: $feed isn't signed (no tagged release requires a signed feed yet)"
-  exit 0
+  hint=""
+  [ "$required" = 1 ] || hint="; only the first release that signs the feed builds on an unsigned one, with ALLOW_UNSIGNED_FEED=1"
+  echo "FAIL  $feed carries a Sparkle signature  (it has none$hint)"
+  exit 1
 fi
 swiftc -O "$here/ed25519.swift" -o "$work/ed25519" 2>/dev/null
 "$work/ed25519" verify "$work/signed" "$signature" "$key" \

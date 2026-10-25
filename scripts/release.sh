@@ -159,7 +159,7 @@ engine_gate() {
     problem="the engine is Chromium $engine, a milestone behind Chrome's Mac Stable $stable"
     advice="a stable release ships on Chrome's current milestone: bump CHROMIUM_VERSION in engine/patches/build/env.sh (docs/engine-build.md), or set ALLOW_STALE_ENGINE=1 for an emergency release"
   else
-    [ "$(printf '%s\n%s\n' "$engine" "$stable" | sort -V | tail -1)" = "$engine" ] \
+    [ "$(printf '%s\n%s\n' "$engine" "$stable" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -1)" = "$engine" ] \
       || echo "warning: the engine is Chromium $engine and Chrome's Mac Stable is $stable: same milestone, but the later point release usually carries security fixes" >&2
     return 0
   fi
@@ -213,7 +213,9 @@ esac
 if [ ! -s "$base_feed" ] && [ "$rc" = 0 ] && [ "$feed_base" != none ]; then
   die "couldn't read the published appcast ($feed_base): every release builds on it, or earlier versions and the other channel drop out of the feed"
 fi
-[ ! -s "$base_feed" ] || "$verify_feed" "$base_feed" \
+unsigned_feed_ok="${ALLOW_UNSIGNED_FEED:-0}"
+[ "$rc" = 1 ] && unsigned_feed_ok=1
+[ ! -s "$base_feed" ] || ALLOW_UNSIGNED_FEED="$unsigned_feed_ok" "$verify_feed" "$base_feed" \
   || die "the published appcast ($feed_base) isn't signed with the Sparkle key: this release would carry its items forward and sign them"
 newest_listed="$(grep -o '<sparkle:version>[0-9]*<' "$base_feed" | tr -dc '0-9\n' | sort -n | tail -1 || true)"
 [ -z "$newest_listed" ] || [ "$release_build" -gt "$newest_listed" ] \
