@@ -106,12 +106,17 @@ public class SyncModule: Module {
     AsyncFunction("read") { (folder: String, scope: String, known: [String]) throws -> [String: Any] in
       let listing = try self.vault(folder).read(scope: scope, skipping: Set(known))
       let passwords = try self.passwords()
-      return [
-        "files": listing.files.map { ["id": $0.id, "payload": passwords.fromWire(String(decoding: $0.payload, as: UTF8.self))] },
-        "pending": listing.pending,
-        "damaged": listing.damaged.map { ["id": $0.id, "age": $0.age * 1000] },
-        "present": listing.present,
-      ]
+      var files: [[String: Any]] = []
+      var damaged: [[String: Any]] = listing.damaged.map { ["id": $0.id, "age": $0.age * 1000] }
+      for file in listing.files {
+        do {
+          files.append(["id": file.id, "payload": try passwords.fromWire(String(decoding: file.payload, as: UTF8.self))])
+        } catch {
+          NSLog("[sync] a synced file's passwords didn't parse; treating it as damaged")
+          damaged.append(["id": file.id, "age": 0])
+        }
+      }
+      return ["files": files, "pending": listing.pending, "damaged": damaged, "present": listing.present]
     }.runOnQueue(Self.work)
 
     AsyncFunction("remove") { (folder: String, scope: String, ids: [String]) throws in
@@ -206,7 +211,7 @@ public class SyncModule: Module {
       }
     }.runOnQueue(.main)
 
-    Function("lockRecoveryPhrase") { self.grants.closeRecovery() }
+    AsyncFunction("lockRecoveryPhrase") { self.grants.closeRecovery() }.runOnQueue(.main)
 
     AsyncFunction("unlockPasswords") { (promise: Promise) in
       self.grants.unlockPasswords { promise.resolve($0) }
@@ -401,13 +406,20 @@ private final class Grants {
     case recovery
   }
 
+  private struct Request {
+    let token: Int
+    let context: LAContext
+    var waiting: [(Bool) -> Void]
+  }
+
   private static let recoveryWindow: TimeInterval = 300
 
   private let lock = NSLock()
   private var passwords = false
   private var recoveryUntil = Date.distantPast
   private var waitLogged = false
-  private var asking: [Purpose: [(Bool) -> Void]] = [:]
+  private var asking: [Purpose: Request] = [:]
+  private var lastToken = 0
 
   var passwordsUnlocked: Bool {
     lock.lock()
@@ -429,9 +441,13 @@ private final class Grants {
   }
 
   func closeRecovery() {
+    dispatchPrecondition(condition: .onQueue(.main))
     lock.lock()
-    defer { lock.unlock() }
     recoveryUntil = .distantPast
+    lock.unlock()
+    guard let request = asking.removeValue(forKey: .recovery) else { return }
+    request.context.invalidate()
+    for waiting in request.waiting { waiting(false) }
   }
 
   private var recoveryOpen: Bool {
@@ -453,11 +469,16 @@ private final class Grants {
   private func ask(_ purpose: Purpose, reason: String, _ done: @escaping (Bool) -> Void) {
     dispatchPrecondition(condition: .onQueue(.main))
     if asking[purpose] != nil {
-      asking[purpose]?.append(done)
+      asking[purpose]?.waiting.append(done)
       return
     }
-    asking[purpose] = [done]
-    DeviceOwner.confirm(reason) { granted in
+    lastToken += 1
+    let token = lastToken
+    let context = LAContext()
+    asking[purpose] = Request(token: token, context: context, waiting: [done])
+    DeviceOwner.confirm(reason, with: context) { granted in
+      guard let request = self.asking[purpose], request.token == token else { return }
+      self.asking[purpose] = nil
       if granted {
         switch purpose {
         case .passwords:
@@ -468,20 +489,19 @@ private final class Grants {
           self.openRecovery()
         }
       }
-      for waiting in self.asking.removeValue(forKey: purpose) ?? [] { waiting(granted) }
+      for waiting in request.waiting { waiting(granted) }
     }
   }
 }
 
 private enum DeviceOwner {
-  static func confirm(_ reason: String, _ done: @escaping (Bool) -> Void) {
+  static func confirm(_ reason: String, with context: LAContext, _ done: @escaping (Bool) -> Void) {
     let environment = ProcessInfo.processInfo.environment
     if environment["ARDIA_BACKGROUND"] == "1" {
       let granted = environment["ARDIA_TEST_REAUTH"] == "granted" && !(environment["ARDIA_DATA_DIR"] ?? "").isEmpty && !signedForDistribution
       NSLog("[sync] device reauth (\(reason)) in a hidden test instance, no prompt: \(granted ? "granted" : "denied")")
       return done(granted)
     }
-    let context = LAContext()
     var problem: NSError?
     guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &problem) else {
       let noPassword = problem?.code == LAError.Code.passcodeNotSet.rawValue

@@ -990,6 +990,29 @@ test("passwords: the sync state keeps a digest and a sealed secret, never the pa
   assert.equal((await a.sync()).published + (await b.sync()).published, 0);
 });
 
+test("passwords: a locked Mac reads, publishes and applies nothing, and catches up once unlocked", async () => {
+  const folder = new Folder();
+  const a = new Device("devA", folder);
+  const b = new Device("devB", folder);
+  const key = "pw:https://locked.example\ndana";
+  await a.with(() => stub.savePassword("", "https://locked.example", "dana", "wait-for-me"));
+  stub.passwordsLockedOn.add("devA").add("devB");
+  try {
+    await syncAll([a, b]);
+    assert.ok(!(key in a.scopes.p.records), "A publishes nothing while locked");
+    stub.passwordsLockedOn.delete("devA");
+    await syncAll([a, b]);
+    assert.ok(key in b.scopes.p.records, "B has the record");
+    assert.equal(stub.passwordStores.get("devB").has("https://locked.example\ndana"), false, "but doesn't apply it while locked");
+  } finally {
+    stub.passwordsLockedOn.clear();
+  }
+  await syncAll([b, a]);
+  assert.equal(stub.passwordStores.get("devB").get("https://locked.example\ndana")?.password, "wait-for-me");
+  const seal = a.scopes.p.records[key].v.s;
+  assert.equal(await stub.openPassword((seal[0] === "A" ? "B" : "A") + seal.slice(1)), null, "a tampered seal doesn't open");
+});
+
 test("passwords: a sync state from before digests moves to them at load, once, without republishing", async () => {
   const folder = new Folder();
   const a = new Device("devA", folder);

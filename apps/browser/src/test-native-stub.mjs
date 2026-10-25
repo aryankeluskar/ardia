@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 
 export const docs = new Map();
 export const readDocument = (name) => docs.get(name) ?? null;
@@ -52,11 +52,29 @@ export const savePassword = async (_profile, origin, username, password) => {
   return true;
 };
 export const deletePassword = async (_profile, origin, username) => (logins().delete(`${origin}\n${username}`), true);
-const digestOf = (password) => `d:${createHash("sha256").update(password).digest("base64").slice(0, 22)}`;
-let seals = 0;
-const sealOf = (password) => `s:${++seals}:${Buffer.from(password).toString("base64")}`;
-export const readLogins = async () => [...logins().values()].map(({ password, ...login }) => ({ ...login, digest: digestOf(password), secret: sealOf(password) }));
-export const openPassword = async (secret) => (/^s:\d+:/.test(secret) ? Buffer.from(secret.slice(secret.indexOf(":", 2) + 1), "base64").toString() : null);
+const syncTestKey = createHash("sha256").update("ardia sync test key").digest();
+const digestOf = (password) => createHmac("sha256", syncTestKey).update(password).digest("base64").slice(0, 22);
+const sealOf = (password) => {
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", syncTestKey, nonce);
+  const body = Buffer.concat([cipher.update(password, "utf8"), cipher.final()]);
+  return Buffer.concat([nonce, cipher.getAuthTag(), body]).toString("base64");
+};
+const openOf = (secret) => {
+  try {
+    const raw = Buffer.from(secret, "base64");
+    const decipher = createDecipheriv("aes-256-gcm", syncTestKey, raw.subarray(0, 12));
+    decipher.setAuthTag(raw.subarray(12, 28));
+    return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
+};
+export const passwordsLockedOn = new Set();
+const passwordsLocked = () => passwordsLockedOn.has(current.device);
+export const readLogins = async () =>
+  passwordsLocked() ? null : [...logins().values()].map(({ password, ...login }) => ({ ...login, digest: digestOf(password), secret: sealOf(password) }));
+export const openPassword = async (secret) => (passwordsLocked() ? null : openOf(secret));
 export const protectPasswords = async (passwords) => passwords.map((password) => ({ d: digestOf(password), s: sealOf(password) }));
 
 export const historyDbs = new Map();
@@ -247,6 +265,7 @@ export const readUserScriptsStatus = async () => userScripts().status;
 export const writeUserScriptsStatus = async (json) => void (userScripts().status = json, userScripts().writes.push(JSON.parse(json)));
 export const onUserScriptsChange = (listener) => (userScripts().change = listener, { remove() {} });
 export const listExtensions = (profile) => userScripts().engine.list(profile);
+export const onExtensionsChanged = (listener) => ((globalThis.acTestExtensionsChanged ??= []).push(listener), { remove() {} });
 export const installExtension = (pkg, profile) => userScripts().engine.install(pkg.path, profile);
 export const reloadExtension = (id, profile) => userScripts().engine.reload(id, profile);
 export const uninstallExtension = (id, profile) => userScripts().engine.uninstall(id, profile);

@@ -344,7 +344,9 @@ Saved passwords are Chrome's (its password manager).
   only the bytes of those values (`SyncPasswords` in `SyncCrypto.swift`), so the folder's format and
   older Macs are unchanged. JS sees a password only while applying one from another Mac
   (`openPassword`, then `savePassword`). A state from an earlier version is converted when loaded,
-  without republishing (tested).
+  without republishing (tested). It fails closed: a file whose passwords can't be parsed (or hold a
+  lone surrogate) counts as damaged instead of reaching JS, and a state that can't be converted keeps
+  Passwords from syncing until a later launch converts it.
 
 ## UX (from Dia's binary)
 
