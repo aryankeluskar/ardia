@@ -391,7 +391,7 @@
 				INFOPLIST_FILE = "Ardia-macOS/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.41-nightly.1;
+				MARKETING_VERSION = "0.2.41-nightly.1";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -426,7 +426,7 @@
 				INFOPLIST_FILE = "Ardia-macOS/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.2.41-nightly.1;
+				MARKETING_VERSION = "0.2.41-nightly.1";
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
